@@ -98,18 +98,16 @@ def test_load_and_save_working_dir(tmp_path: Path):
     assert utils.load_working_dir(cache) == "/path/to/dir"
 
 
-def test_load_and_save_default_model(tmp_path: Path):
-    """Changing the model should persist and coexist with other settings."""
+def test_model_selection_is_not_persisted(tmp_path: Path):
+    """Saving the model should have no effect on subsequent loads."""
     cfg = tmp_path / "config.ini"
-    # Default fallback when config is absent
+    # Loading should always return the medium model regardless of config file.
     assert utils.load_default_model(cfg) == "gpt-5-mini"
-    # After saving, the chosen model should round-trip
+    # Attempting to save a different model should not create or modify the file.
     utils.save_default_model("gpt-5", cfg)
-    assert utils.load_default_model(cfg) == "gpt-5"
-    # Saving the timeout afterwards should not erase the model choice
-    utils.save_timeout(7, cfg)
-    assert utils.load_default_model(cfg) == "gpt-5"
-    assert utils.load_timeout(cfg) == 7
+    assert utils.load_default_model(cfg) == "gpt-5-mini"
+    # Config file should not exist because nothing was persisted.
+    assert not cfg.exists()
 
 
 def test_get_commit_stats(tmp_path: Path):
