@@ -239,3 +239,42 @@ def get_commit_stats(commit_id: str, repo_path: str) -> dict:
         "files_changed": files_changed,
         "description": description,
     }
+
+
+# --- History helpers -------------------------------------------------------
+
+# Default column widths for the history table. ID and count columns stay
+# compact while textual fields get extra room for readability.
+HISTORY_COL_WIDTHS = {
+    "request_id": 80,
+    "commit_id": 80,
+    "lines": 60,
+    "files": 60,
+    "failure_reason": 200,
+    "description": 300,
+}
+
+
+def abbreviate(value: Optional[str], length: int = 8) -> str:
+    """Return the first ``length`` characters of ``value`` for compact display."""
+
+    if not value:
+        return ""
+    return value[:length]
+
+
+def format_history_row(rec: dict) -> tuple:
+    """Return display-friendly values for a history record.
+
+    The request/commit IDs are abbreviated so the history window can keep
+    narrow columns for those fields.
+    """
+
+    return (
+        abbreviate(rec.get("request_id")),
+        abbreviate(rec.get("commit_id")),
+        rec.get("lines", 0),
+        rec.get("files", 0),
+        rec.get("failure_reason", ""),
+        rec.get("description", ""),
+    )
