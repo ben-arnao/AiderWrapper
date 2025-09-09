@@ -8,6 +8,7 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 - Multiline text area for composing prompts.
 - Startup check that validates the `OPENAI_API_KEY` via a test API call.
 - Each request receives a unique identifier and is logged in a table that shows commit ids, total line and file changes, per-request cost, and any failure reason. The history view abbreviates IDs so the table remains compact.
+- History rows can be copied to the clipboard with **Ctrl+C** for easy sharing.
 - Failed runs record aider's exit code and last output line so troubleshooting is easier.
 - The Send button has been removed—press **Enter** to dispatch a prompt.
 - A boxed status bar sits between the prompt area and the output, showing detailed status for each request and whether we're waiting on aider or the user.

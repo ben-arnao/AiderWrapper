@@ -1,7 +1,7 @@
 import threading
 import subprocess
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, messagebox
 import os
 import uuid
 
@@ -15,7 +15,7 @@ from utils.config import (
     load_usage_days,
     build_and_launch_game,
 )
-from utils.git import format_history_row, HISTORY_COL_WIDTHS
+from utils.git import format_history_row, HISTORY_COL_WIDTHS, history_records_to_tsv
 
 from nolight import runner
 
@@ -232,9 +232,25 @@ def main() -> None:
             # Keep IDs and counts narrow but give text fields extra room.
             anchor = "e" if col in {"lines", "files", "cost"} else "w"
             tree.column(col, width=HISTORY_COL_WIDTHS[col], anchor=anchor)
-        for rec in runner.request_history:
-            # Abbreviate IDs before inserting so the table stays compact.
-            tree.insert("", tk.END, values=format_history_row(rec))
+        for idx, rec in enumerate(runner.request_history):
+            # Use ``idx`` as the item id so we can map back to the record later.
+            tree.insert("", tk.END, iid=str(idx), values=format_history_row(rec))
+
+        def copy_selected(event=None) -> None:
+            """Copy selected history rows to the clipboard."""
+            # ``selection`` returns the item ids for the highlighted rows.
+            sel = tree.selection()
+            if not sel:
+                return
+            # Fetch the underlying records using the stored indices.
+            rows = [runner.request_history[int(i)] for i in sel]
+            # Convert to tab-separated text and push to the clipboard.
+            txt = history_records_to_tsv(rows)
+            win.clipboard_clear()
+            win.clipboard_append(txt)
+
+        # Allow standard Ctrl+C copying of the selected rows.
+        tree.bind("<Control-c>", copy_selected)
         tree.pack(fill="both", expand=True)
 
     # Simple button to pop up the history table
