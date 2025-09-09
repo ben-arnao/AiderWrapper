@@ -187,6 +187,81 @@ def test_run_aider_records_exit_reason(monkeypatch):
     assert status_var.value == "Request req1: failed - aider exited with code 2: boom"
 
 
+def test_run_aider_prompts_for_more_input(monkeypatch):
+    """Aider lines requesting files should keep the request active."""
+    runner.request_history.clear()
+    runner.request_active = True  # Simulate an ongoing request
+
+    class DummyText:
+        def insert(self, *_args):
+            pass  # Output is ignored for this behavior check
+
+        def see(self, *_args):
+            pass
+
+        def configure(self, **_kwargs):
+            pass
+
+        def config(self, **_kwargs):
+            pass
+
+        def focus_set(self):
+            pass
+
+    class DummyVar:
+        def __init__(self):
+            self.value = ""
+
+        def set(self, val):
+            self.value = val  # Remember status text for assertions
+
+    class DummyLabel:
+        def config(self, **_kwargs):
+            pass
+
+        def unbind(self, *_args, **_kwargs):
+            pass
+
+    class MockPopen:
+        def __init__(self, *args, **kwargs):
+            # Simulate aider stopping to let the user attach files
+            msg = (
+                "These are the files we might edit. I will stop here so you can add them to the chat.\n"
+            )
+            self.stdout = io.StringIO(msg)
+            self.returncode = 0
+
+        def wait(self):
+            return self.returncode
+
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: MockPopen())
+
+    output = DummyText()
+    txt_input = DummyText()
+    status_var = DummyVar()
+    status_label = DummyLabel()
+
+    runner.run_aider(
+        msg="hi",
+        output_widget=output,
+        txt_input=txt_input,
+        work_dir=".",
+        model="gpt-5",
+        status_var=status_var,
+        status_label=status_label,
+        request_id="req2",
+    )
+
+    # Request should remain active waiting for follow-up input
+    assert runner.request_active
+    assert status_var.value.startswith("Request req2: waiting for your input")
+    # No history record yet because commit hasn't occurred
+    assert runner.request_history == []
+
+
 def test_run_aider_strips_ansi_from_failure_reason(monkeypatch):
     """Colored error lines should be recorded without escape sequences."""
 

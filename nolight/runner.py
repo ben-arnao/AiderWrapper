@@ -194,9 +194,17 @@ def run_aider(
                 update_status(
                     status_var,
                     status_label,
-                    f"Request {short_id}: waiting on our input",
+                    # Tell the user exactly what to do next in the status bar
+                    f"Request {short_id}: waiting for your input - add files or answers and press Enter",
                     "orange",
                 )
+                # Provide a hint in the output area so instructions aren't missed
+                output_widget.configure(state="normal")
+                output_widget.insert(
+                    tk.END,
+                    "[info] Aider needs more details. Add the requested files or answers above and press Enter.\n",
+                )
+                output_widget.configure(state="disabled")
                 proc.kill()
                 break
 

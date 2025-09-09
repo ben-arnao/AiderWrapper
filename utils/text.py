@@ -18,9 +18,16 @@ NO_TTY_PATTERNS = [
 NO_TTY_REGEXES = [re.compile(pat) for pat in NO_TTY_PATTERNS]
 
 # Regexes used to detect when aider is asking for additional input from the user.
-# We look for lines that begin with "Please" and end with a question mark as a
-# simple heuristic for interactive prompts.
-USER_INPUT_PATTERNS = [r"^Please .+\?$"]
+# Besides direct questions, aider will often pause and ask the user to add files
+# or reply with answers. The patterns are intentionally broad so new phrasing
+# still triggers the prompt for more input.
+USER_INPUT_PATTERNS = [
+    r"^Please .+\?$",             # A direct question addressed to the user
+    r"add (?:them|the files) to the chat",  # Aider requests files be attached
+    r"stop here so you can",       # Indicates aider paused for user action
+    r"reply with answers",         # Explicit instruction to respond with text
+]
+# Compile regexes with IGNORECASE so minor variations are still caught
 USER_INPUT_REGEXES = [re.compile(pat, re.IGNORECASE) for pat in USER_INPUT_PATTERNS]
 
 # Regex used to extract dollar amounts from aider output
@@ -56,9 +63,10 @@ def extract_cost(text: str) -> Optional[float]:
 
 def needs_user_input(line: str) -> bool:
     """Return True if the line indicates aider expects more information."""
-    # Trim whitespace and see if the remaining text matches our heuristic
+    # Trim whitespace so leading/trailing spaces don't interfere with detection
     stripped = line.strip()
-    return any(rx.match(stripped) for rx in USER_INPUT_REGEXES)
+    # Search anywhere in the line for patterns that imply the user must respond
+    return any(rx.search(stripped) for rx in USER_INPUT_REGEXES)
 
 
 def strip_ansi(text: str) -> str:
