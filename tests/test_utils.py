@@ -66,6 +66,18 @@ def test_extract_commit_id_missing():
     assert utils.extract_commit_id(text) is None
 
 
+def test_extract_cost_found():
+    """Dollar amounts should be parsed as floats."""
+    line = "Total cost: $1.23"
+    assert utils.extract_cost(line) == 1.23
+
+
+def test_extract_cost_missing():
+    """Lines without dollar amounts should return None."""
+    line = "No money mentioned here"
+    assert utils.extract_cost(line) is None
+
+
 def test_needs_user_input_detects_prompt():
     """Lines that start with 'Please' and end with '?' require user action."""
     line = "Please add README.md to the chat so I can generate the exact SEARCH/REPLACE blocks?"
@@ -160,53 +172,6 @@ def test_get_commit_stats(tmp_path: Path):
     stats3 = utils.get_commit_stats(commit3, repo)
     assert stats3["files_removed"] == 1
     assert stats3["lines_removed"] == 2
-
-
-def test_load_usage_days(tmp_path: Path):
-    """Loading should return 30 by default and respect config value."""
-    cfg = tmp_path / "config.ini"
-    # Without a config file we expect the default window of 30 days.
-    assert utils.load_usage_days(cfg) == 30
-    # After writing a custom value it should be returned.
-    cfg.write_text("[usage]\nbilling_days = 10\n")
-    assert utils.load_usage_days(cfg) == 10
-
-
-def test_fetch_usage_data_parses_responses():
-    """Spending and credit info should be computed from API responses."""
-
-    def fake_request(url, headers=None, params=None):
-        resp = types.SimpleNamespace()
-        resp.status_code = 200
-        # Return usage cost in cents for the billing/usage endpoint.
-        if "billing/usage" in url:
-            resp.json = lambda: {"total_usage": 1234}
-        else:  # credit_grants endpoint
-            resp.json = lambda: {
-                "total_granted": 20,
-                "total_used": 5,
-                "total_available": 15,
-            }
-        return resp
-
-    stats = utils.fetch_usage_data("key", days=30, request_fn=fake_request)
-    assert stats["total_spent"] == pytest.approx(12.34)
-    assert stats["credits_total"] == 20
-    assert stats["credits_remaining"] == 15
-    assert stats["pct_credits_used"] == pytest.approx(25.0)
-
-
-def test_fetch_usage_data_error():
-    """Non-200 responses should raise ValueError."""
-
-    def bad_request(url, headers=None, params=None):
-        resp = types.SimpleNamespace()
-        resp.status_code = 500
-        resp.text = "boom"
-        return resp
-
-    with pytest.raises(ValueError):
-        utils.fetch_usage_data("key", request_fn=bad_request)
 
 def test_build_and_launch_game_runs(monkeypatch, tmp_path):
     """Building then launching should invoke subprocess.run and subprocess.Popen."""

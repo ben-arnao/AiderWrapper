@@ -14,7 +14,7 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 - A boxed status bar sits between the prompt area and the output, reporting whether we're waiting on aider or the user.
 - After a successful commit, the status bar offers a **Test changes** link that builds and launches your Unity project via the command line. Ensure the Unity CLI is installed and available on your `PATH` so the build step can run.
 - Output from previous requests remains visible so the full conversation can be reviewed.
-- An **API usage** button displays recent spending and remaining credits using the OpenAI billing API.
+- Each request's cost is tracked by parsing aider's output, with a running total shown in the UI.
 
 ## Development Best Practices
 
