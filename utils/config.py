@@ -95,9 +95,18 @@ def build_and_launch_game(
     run_cmd=None,
     project_path=None,
     unity_exe=None,
-    method="BuildScript.PerformBuild",
+    method="RogueLike2D.Editor.BuildScript.PerformBuild",
 ):
-    """Build the Unity project then start the resulting executable."""
+    """Build the Unity project then start the resulting executable.
+
+    Parameters
+    ----------
+    method:
+        Fully-qualified Unity method used to trigger the build. The default
+        targets ``RogueLike2D.Editor.BuildScript.PerformBuild`` which wraps the
+        project's Windows build logic. The command list avoids shell quoting so
+        paths with spaces remain intact.
+    """
     if build_cmd is None:
         # Resolve ``Unity.exe`` and construct the batch build command.
         unity_exe = unity_exe or _find_unity_exe()

@@ -366,7 +366,13 @@ def test_build_and_launch_game_uses_finder(monkeypatch, tmp_path):
 
     proc = config_utils.build_and_launch_game(run_cmd=[str(game)])
 
-    assert calls[0][1][0] == str(unity)
+    cmd = calls[0][1]
+    assert cmd[0] == str(unity)
+    # Ensure the fully-qualified build method is included in the command.
+    idx = cmd.index("-executeMethod")
+    assert (
+        cmd[idx + 1] == "RogueLike2D.Editor.BuildScript.PerformBuild"
+    )
     assert isinstance(proc, types.SimpleNamespace)
 
 
