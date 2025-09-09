@@ -12,7 +12,7 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 - Failed runs record aider's exit code and last output line, or note when no output was captured, so troubleshooting is easier.
 - History rows can be copied to the clipboard with **Ctrl+C** for easy sharing.
 - The Send button has been removed—press **Enter** to dispatch a prompt.
-- A boxed status bar sits between the prompt area and the output, showing detailed status for each request and whether we're waiting on aider or the user.
+- A boxed status bar sits between the prompt area and the output, showing detailed status for each request and whether we're waiting on aider or the user. When more details are needed, it explicitly tells you to provide the requested files or answers.
 - After a successful commit, the status bar offers a **Test changes** link that builds and launches your Unity project via the command line. Configure the Unity Editor path via `config.ini` (`[build] build_cmd`), the `UNITY_PATH` environment variable, or let the app auto-detect a Unity Hub installation.
 - A **Build & Run** button in the top-right corner lets you compile and launch the Unity project at any time to quickly test the latest changes.
 - Build failures surface a dialog showing Unity's log tail so issues can be diagnosed without hunting for files.
