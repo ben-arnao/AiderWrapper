@@ -90,40 +90,77 @@ def _find_unity_exe(config_path: Path = CONFIG_PATH) -> str:
     )
 
 
-def build_and_launch_game(build_cmd=None, run_cmd=None):
+def build_and_launch_game(
+    build_cmd=None,
+    run_cmd=None,
+    project_path=None,
+    unity_exe=None,
+    method="BuildScript.PerformBuild",
+):
     """Build the Unity project then start the resulting executable."""
     if build_cmd is None:
-        # Resolve Unity.exe using config/environment and build in batch mode
-        unity_exe = _find_unity_exe()
+        # Resolve ``Unity.exe`` and construct the batch build command.
+        unity_exe = unity_exe or _find_unity_exe()
+        project_path = project_path or str(
+            Path(__file__).resolve().parents[2] / "NoLightUnityProject"
+        )
+        log_file = Path(project_path) / "Editor.log.batchbuild.txt"
         build_cmd = [
             unity_exe,
             "-batchmode",
             "-nographics",
             "-quit",
+            "-projectPath",
+            project_path,
             "-executeMethod",
-            "BuildScript.PerformBuild",
+            method,
+            "-logFile",
+            str(log_file),
         ]
-    if run_cmd is None:
-        # Launch the game using a placeholder executable name
-        run_cmd = ["./YourGameExecutable"]
+    else:
+        log_file = None  # No Unity log when using a custom build command
 
-    # Ensure the build tool exists before attempting to run it
-    if shutil.which(build_cmd[0]) is None:
+    if run_cmd is None:
+        # Default to launching the Windows build produced by ``BuildScript``.
+        run_cmd = [
+            str(Path(project_path or ".") / "Builds" / "Windows" / "NoLight.exe")
+        ]
+
+    exe_path = build_cmd[0]
+    # Ensure the build tool exists either on PATH or as an absolute file.
+    if not (shutil.which(exe_path) or Path(exe_path).is_file()):
         raise FileNotFoundError(
-            f"Build tool '{build_cmd[0]}' not found. "
-            "Install Unity or provide the full path via build_cmd."
+            f"Build tool '{exe_path}' not found. Install Unity or provide the full path via build_cmd."
         )
 
-    # Build the project; check=True ensures we raise on failure
-    subprocess.run(build_cmd, check=True)
+    # Run the build without ``check=True`` so we can surface log output on failure.
+    proc = subprocess.run(build_cmd, capture_output=True, text=True)
 
-    # Confirm the game binary was produced by the build step
+    if proc.returncode != 0:
+        # Attempt to read the last ~80 lines of Unity's log for context.
+        tail = ""
+        if log_file and log_file.exists():
+            try:
+                with open(log_file, "r", encoding="utf-8", errors="ignore") as fh:
+                    lines = fh.readlines()
+                    tail = "".join(lines[-80:])
+            except Exception:
+                pass
+        log_display = str(log_file) if log_file else "(no log file)"
+        msg = (
+            f"Unity batch build failed (exit {proc.returncode}).\n"
+            f"Command: {' '.join(build_cmd)}\n\n"
+            f"STDERR:\n{proc.stderr.strip() or '(empty)'}\n\n"
+            f"--- Log tail ({log_display}) ---\n{tail or '(log missing)'}"
+        )
+        raise RuntimeError(msg)
+
+    # Confirm the game binary was produced by the build step.
     game_path = Path(run_cmd[0])
     if not game_path.exists():
         raise FileNotFoundError(
-            f"Game binary '{run_cmd[0]}' not found. "
-            "Verify the build output path."
+            f"Game binary '{run_cmd[0]}' not found. Verify the build output path."
         )
 
-    # Start the game without waiting for it to exit
+    # Start the game without waiting for it to exit.
     return subprocess.Popen(run_cmd)
