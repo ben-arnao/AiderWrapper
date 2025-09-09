@@ -2,7 +2,7 @@ import os
 import re
 import configparser  # Read/write simple configuration values
 from pathlib import Path  # Locate config file relative to this module
-from typing import Callable
+from typing import Callable, Optional
 
 import requests
 
@@ -98,7 +98,7 @@ def save_project_dir(path: str, cache_path: Path = PROJECT_CACHE_PATH) -> None:
         fh.write(path)
 
 
-def extract_commit_id(text: str) -> str | None:
+def extract_commit_id(text: str) -> Optional[str]:
     """Return the first commit hash found in the text or None."""
     match = COMMIT_RE.search(text)
     return match.group(1) if match else None
