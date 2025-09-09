@@ -6,7 +6,7 @@ from tkinter import ttk
 
 # Import helpers from the modular utils package so contributors can edit
 # specific areas without touching a monolithic file.
-from utils.text import should_suppress, needs_user_input
+from utils.text import should_suppress, needs_user_input, extract_cost
 from utils.git import extract_commit_id, get_commit_stats
 
 # Track details for each user request so they can be shown in a history table.
@@ -15,6 +15,8 @@ current_request_id: Optional[str] = None  # UUID for the active request
 request_active = False  # True while we're waiting on aider to finish
 # When set, the next request should clear the output widget before running.
 reset_on_new_request = False
+# Total dollars spent during this application session
+session_total_cost: float = 0.0
 
 
 def update_status(status_var, status_label, message: str, color: str = "black") -> None:
@@ -31,6 +33,7 @@ def record_request(
     stats: Optional[dict] = None,
     failure_reason: Optional[str] = None,
     description: str = "",
+    cost: float = 0.0,
 ) -> None:
     """Append a summary of the request to ``request_history``.
 
@@ -47,6 +50,8 @@ def record_request(
         Text explaining why the request failed, if applicable.
     description:
         Short commit message suitable for display in the history table.
+    cost:
+        Dollar amount charged for this request.
     """
 
     # Compute totals from stats when available; otherwise fall back to zero.
@@ -67,6 +72,7 @@ def record_request(
             "commit_id": commit_id,
             "lines": lines_total,
             "files": files_total,
+            "cost": cost,
             "failure_reason": failure_reason,
             "description": description,
         }
@@ -98,6 +104,7 @@ def run_aider(
     status_var: tk.StringVar,
     status_label: ttk.Label,
     request_id: str,
+    session_cost_var: Optional[tk.StringVar] = None,
 ) -> None:
     """Spawn the aider CLI and capture commit details.
 
@@ -106,7 +113,7 @@ def run_aider(
     ``request_history`` so the user can review past actions.
     """
 
-    global request_active, reset_on_new_request
+    global request_active, reset_on_new_request, session_total_cost
     # Ensure the status bar is reset for each new request by removing any
     # previous click handlers and cursor styling.
     status_label.config(cursor="")
@@ -148,6 +155,7 @@ def run_aider(
         failure_reason: Optional[str] = None
         waiting_on_user = False  # Set when aider asks for more information
         last_line = ""  # Remember the most recent non-empty line from aider
+        request_cost = 0.0  # Dollars charged for this request
 
         # Read line-by-line so the UI stays responsive.
         for line in proc.stdout:
@@ -168,6 +176,17 @@ def run_aider(
             if cid:
                 commit_id = cid
 
+            # Capture cost information when aider reports it
+            amt = extract_cost(line)
+            if amt is not None:
+                request_cost = amt
+                session_total_cost += amt
+                # Update the session cost label in the UI if provided
+                if session_cost_var is not None:
+                    session_cost_var.set(
+                        f"Total credits this session: ${session_total_cost:.4f}"
+                    )
+
             # If aider is asking for more information, stop the process and let
             # the user reply instead of timing out.
             if needs_user_input(line):
@@ -187,7 +206,7 @@ def run_aider(
             try:
                 # Query git for stats about the commit so we can store them.
                 stats = get_commit_stats(commit_id, work_dir)
-                record_request(request_id, commit_id, stats)
+                record_request(request_id, commit_id, stats, cost=request_cost)
                 update_status(
                     status_var,
                     status_label,
@@ -200,6 +219,7 @@ def run_aider(
                     request_id,
                     commit_id,
                     failure_reason=f"stats error: {e}",
+                    cost=request_cost,
                 )
                 update_status(
                     status_var,
@@ -231,7 +251,7 @@ def run_aider(
                 "red",
             )
             # Store the detailed reason so it appears in the history table
-            record_request(request_id, None, failure_reason=failure_reason)
+            record_request(request_id, None, failure_reason=failure_reason, cost=request_cost)
             request_active = False
     except FileNotFoundError:
         output_widget.configure(state="normal")
@@ -246,7 +266,7 @@ def run_aider(
             "Failed to make commit due to missing 'aider'",
             "red",
         )
-        record_request(request_id, None, failure_reason="aider not found")
+        record_request(request_id, None, failure_reason="aider not found", cost=0.0)
         request_active = False
     finally:
         # Re-enable the input box so the user can type a follow-up or new request.
