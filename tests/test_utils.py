@@ -207,3 +207,29 @@ def test_fetch_usage_data_error():
 
     with pytest.raises(ValueError):
         utils.fetch_usage_data("key", request_fn=bad_request)
+
+
+def test_update_status_sets_message_and_color():
+    """update_status should set the text and color on the status label."""
+
+    class DummyVar:
+        def __init__(self):
+            self.value = ""
+
+        def set(self, value):
+            # Record the last message that was assigned.
+            self.value = value
+
+    class DummyLabel:
+        def __init__(self):
+            self.fg = ""
+
+        def config(self, **kwargs):
+            # Capture the foreground color the UI would display.
+            self.fg = kwargs.get("foreground", self.fg)
+
+    var = DummyVar()
+    lbl = DummyLabel()
+    utils.update_status(var, lbl, "hello", "green")
+    assert var.value == "hello"
+    assert lbl.fg == "green"
