@@ -5,7 +5,8 @@ from pathlib import Path  # Locate config file relative to this module
 from typing import Callable, Optional
 from datetime import date, timedelta  # Compute usage query window
 
-import subprocess  # Run git commands to gather commit statistics
+import subprocess  # Run external commands like git or Unity
+import shutil  # Locate executables on the PATH
 import requests
 
 # Patterns to filter noisy warnings when no TTY is attached
@@ -378,7 +379,7 @@ def build_and_launch_game(
     if build_cmd is None:
         # Default to a typical headless Unity build command
         build_cmd = [
-            "unity",
+            "unity",  # Unity CLI expected on the PATH
             "-batchmode",
             "-nographics",
             "-quit",
@@ -389,7 +390,23 @@ def build_and_launch_game(
         # Launch the game using a placeholder executable name
         run_cmd = ["./YourGameExecutable"]
 
+    # Ensure the build tool exists before attempting to run it
+    if shutil.which(build_cmd[0]) is None:
+        raise FileNotFoundError(
+            f"Build tool '{build_cmd[0]}' not found. "
+            "Install Unity or provide the full path via build_cmd."
+        )
+
     # Build the project; check=True ensures we raise on failure
     subprocess.run(build_cmd, check=True)
+
+    # Confirm the game binary was produced by the build step
+    game_path = Path(run_cmd[0])
+    if not game_path.exists():
+        raise FileNotFoundError(
+            f"Game binary '{run_cmd[0]}' not found. "
+            "Verify the build output path."
+        )
+
     # Start the game without waiting for it to exit
     return subprocess.Popen(run_cmd)
