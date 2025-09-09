@@ -277,21 +277,36 @@ def test_build_and_launch_game_missing_build_tool():
 
 
 def test_build_and_launch_game_missing_game_binary(monkeypatch, tmp_path):
-    """If the built game is absent, an explicit error should be raised."""
+    """Missing executables should surface stderr and log details."""
 
-    # Pretend the build tool exists and the build command succeeds
-    monkeypatch.setattr(config_utils.shutil, "which", lambda _cmd: "/usr/bin/build")
+    # Pretend Unity.exe exists so build_and_launch_game constructs the command
+    unity = tmp_path / "Unity.exe"
+    unity.touch()
     monkeypatch.setattr(
-        config_utils.subprocess,
-        "run",
-        lambda cmd, capture_output, text: types.SimpleNamespace(returncode=0, stderr=""),
+        config_utils, "_find_unity_exe", lambda cfg=config_utils.CONFIG_PATH: str(unity)
     )
+    monkeypatch.setattr(config_utils.shutil, "which", lambda p: p)
 
-    # Path to a game binary that was not created by the build step
+    # Create a log file with a recognizable error line
+    log_file = tmp_path / "Editor.log.batchbuild.txt"
+    log_file.write_text("line1\nreason\n")
+
+    # Simulate a successful build process that still emits stderr
+    def fake_run(cmd, capture_output, text):
+        return types.SimpleNamespace(returncode=0, stderr="build failed")
+
+    monkeypatch.setattr(config_utils.subprocess, "run", fake_run)
+
+    # Path to the expected game executable that was never created
     missing_game = tmp_path / "no_game.exe"
 
-    with pytest.raises(FileNotFoundError):
-        config_utils.build_and_launch_game(["build"], [str(missing_game)])
+    with pytest.raises(FileNotFoundError) as exc:
+        config_utils.build_and_launch_game(run_cmd=[str(missing_game)], project_path=str(tmp_path))
+
+    # The error message should include stderr output and the log tail
+    msg = str(exc.value)
+    assert "build failed" in msg
+    assert "reason" in msg
 
 
 def test_find_unity_exe_from_config(tmp_path):
