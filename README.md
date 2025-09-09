@@ -20,6 +20,8 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 - Successful commits highlight the status bar message in green.
 - After a successful commit, starting a new request clears prior output so separate conversations don't mix.
 - Aider output is sanitized to remove ANSI color codes so messages display cleanly.
+- Each aider request automatically attaches `AGENTS.md` and `README.md` so
+  project rules and high-level context are always applied.
 - Each request records its cost in dollars and the total session spend is shown in the main window.
 
 ## Development Best Practices
