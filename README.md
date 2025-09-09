@@ -10,6 +10,7 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 - Timeout for detecting the commit ID is adjustable (default 5 minutes) via a gear-icon settings dialog.
 - When a commit ID is detected in aider's output, the console is cleared and the commit hash is recorded in a history box so previous runs are easy to review.
 - Model and timeout preferences are saved to a small config file so selections persist between sessions.
+- A status bar keeps you informed whether the app is waiting on aider's response or for more input, and reports commit outcomes.
 
 ## Author
 Ben Arnao
