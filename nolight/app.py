@@ -1,10 +1,11 @@
 import threading
 import subprocess
 import tkinter as tk
-# Import common Tk widgets plus the messagebox for error dialogs
-from tkinter import ttk, filedialog, messagebox
+# Import common Tk widgets used throughout the UI
+from tkinter import ttk, filedialog
 import os
 import uuid
+import traceback
 
 # Import helpers from the modular utils package so unrelated changes touch
 # fewer files and reduce merge conflicts.
@@ -30,16 +31,36 @@ MODEL_OPTIONS = {
 DEFAULT_CHOICE = "Medium"
 
 
+def show_build_error(msg: str) -> None:
+    """Show a scrollable dialog containing the build failure ``msg``."""
+    # Create a new top-level window so the user can move and resize it.
+    win = tk.Toplevel()
+    win.title("Build failed")
+    # Allow the text widget to expand with the window.
+    win.rowconfigure(0, weight=1)
+    win.columnconfigure(0, weight=1)
+
+    # Text widget displays the stack trace while the scrollbar enables
+    # navigation through long traces.
+    txt = tk.Text(win, wrap="word")
+    scroll = ttk.Scrollbar(win, orient="vertical", command=txt.yview)
+    txt.configure(yscrollcommand=scroll.set)
+    txt.insert("1.0", msg)
+    # Disable editing but still allow text selection for easy copying.
+    txt.config(state="disabled")
+    txt.grid(row=0, column=0, sticky="nsew")
+    scroll.grid(row=0, column=1, sticky="ns")
+
+
 def launch_game(project_path: str) -> None:
     """Build and start the Unity project located at ``project_path``."""
     try:
         # Pass the user-selected working directory to the builder so Unity
         # knows which project to compile.
         build_and_launch_game(project_path=project_path)
-    except Exception as exc:
-        # Surface errors to the user instead of failing silently so they can
-        # fix configuration issues such as a missing Unity installation.
-        messagebox.showerror("Build failed", str(exc))
+    except Exception:
+        # Show the full stack trace so the user can scroll and copy it.
+        show_build_error(traceback.format_exc())
 
 
 def build_ui(root: tk.Tk):
