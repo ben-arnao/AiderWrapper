@@ -21,6 +21,8 @@ from utils import (
     load_usage_days,  # Read how far back to query billing data
     fetch_usage_data,  # Retrieve spending/credit information
     build_and_launch_game,  # Build and run the Unity project on demand
+    format_history_row,  # Prepare rows for the history table
+    HISTORY_COL_WIDTHS,  # Default widths for history columns
 )
 
 # Map human-friendly names to actual model identifiers
@@ -433,19 +435,12 @@ def show_history():
     tree = ttk.Treeview(win, columns=cols, show="headings")
     for col in cols:
         tree.heading(col, text=col.replace("_", " ").title())
+        # Keep IDs and counts narrow but give text fields extra room.
+        anchor = "e" if col in {"lines", "files"} else "w"
+        tree.column(col, width=HISTORY_COL_WIDTHS[col], anchor=anchor)
     for rec in request_history:
-        tree.insert(
-            "",
-            tk.END,
-            values=(
-                rec.get("request_id"),
-                rec.get("commit_id", ""),
-                rec.get("lines", 0),
-                rec.get("files", 0),
-                rec.get("failure_reason", ""),
-                rec.get("description", ""),
-            ),
-        )
+        # Abbreviate IDs before inserting so the table stays compact.
+        tree.insert("", tk.END, values=format_history_row(rec))
     tree.pack(fill="both", expand=True)
 
 

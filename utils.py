@@ -242,6 +242,45 @@ def get_commit_stats(commit_id: str, repo_path: str) -> dict:
     }
 
 
+# --- History helpers -------------------------------------------------------
+
+# Default column widths for the history table. ID and count columns stay
+# compact while textual fields get extra room for readability.
+HISTORY_COL_WIDTHS = {
+    "request_id": 80,
+    "commit_id": 80,
+    "lines": 60,
+    "files": 60,
+    "failure_reason": 200,
+    "description": 300,
+}
+
+
+def abbreviate(value: Optional[str], length: int = 8) -> str:
+    """Return the first ``length`` characters of ``value`` for compact display."""
+
+    if not value:
+        return ""
+    return value[:length]
+
+
+def format_history_row(rec: dict) -> tuple:
+    """Return display-friendly values for a history record.
+
+    The request/commit IDs are abbreviated so the history window can keep
+    narrow columns for those fields.
+    """
+
+    return (
+        abbreviate(rec.get("request_id")),
+        abbreviate(rec.get("commit_id")),
+        rec.get("lines", 0),
+        rec.get("files", 0),
+        rec.get("failure_reason", ""),
+        rec.get("description", ""),
+    )
+
+
 def load_usage_days(config_path: Path = CONFIG_PATH) -> int:
     """Return the number of days of usage data to request.
 
