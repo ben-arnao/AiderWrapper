@@ -310,3 +310,47 @@ def fetch_usage_data(
         "credits_remaining": total_available,
         "pct_credits_used": pct_used,
     }
+
+def build_and_launch_game(
+    build_cmd=None, run_cmd=None
+):
+    """Build the Unity project then start the resulting executable.
+
+    Parameters
+    ----------
+    build_cmd : list[str], optional
+        Command used to build the project. Defaults to a headless Unity build
+        that runs ``BuildScript.PerformBuild``.
+    run_cmd : list[str], optional
+        Command used to launch the built game. Defaults to ``./YourGameExecutable``.
+
+    Returns
+    -------
+    subprocess.Popen
+        Handle to the launched game process so callers can manage it if needed.
+
+    Raises
+    ------
+    subprocess.CalledProcessError
+        If the build command exits with a non-zero status.
+    FileNotFoundError
+        If the Unity executable or game binary cannot be located.
+    """
+    if build_cmd is None:
+        # Default to a typical headless Unity build command
+        build_cmd = [
+            "unity",
+            "-batchmode",
+            "-nographics",
+            "-quit",
+            "-executeMethod",
+            "BuildScript.PerformBuild",
+        ]
+    if run_cmd is None:
+        # Launch the game using a placeholder executable name
+        run_cmd = ["./YourGameExecutable"]
+
+    # Build the project; check=True ensures we raise on failure
+    subprocess.run(build_cmd, check=True)
+    # Start the game without waiting for it to exit
+    return subprocess.Popen(run_cmd)
