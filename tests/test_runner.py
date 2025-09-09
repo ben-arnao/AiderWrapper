@@ -187,6 +187,77 @@ def test_run_aider_records_exit_reason(monkeypatch):
     assert status_var.value == "Request req1: failed - aider exited with code 2: boom"
 
 
+def test_run_aider_strips_ansi_from_failure_reason(monkeypatch):
+    """Colored error lines should be recorded without escape sequences."""
+
+    runner.request_history.clear()
+
+    # Minimal stand-ins for the Tk widgets so the runner can interact with them
+    class DummyText:
+        def insert(self, *_args):
+            pass  # Output is irrelevant for this test
+
+        def see(self, *_args):
+            pass
+
+        def configure(self, **_kwargs):
+            pass
+
+        def config(self, **_kwargs):
+            pass
+
+        def focus_set(self):
+            pass
+
+    class DummyVar:
+        def __init__(self):
+            self.value = ""
+
+        def set(self, val):
+            self.value = val
+
+    class DummyLabel:
+        def config(self, **_kwargs):
+            pass
+
+        def unbind(self, *_args, **_kwargs):
+            pass
+
+    # Mock Popen to emit a red-colored error line then exit with code 1
+    class MockPopen:
+        def __init__(self, *args, **kwargs):
+            self.stdout = io.StringIO("\x1b[31mboom\x1b[0m\n")
+            self.returncode = 1
+
+        def wait(self):
+            return self.returncode
+
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: MockPopen())
+
+    output = DummyText()
+    txt_input = DummyText()
+    status_var = DummyVar()
+    status_label = DummyLabel()
+
+    runner.run_aider(
+        msg="hi",
+        output_widget=output,
+        txt_input=txt_input,
+        work_dir=".",
+        model="gpt-5",
+        status_var=status_var,
+        status_label=status_label,
+        request_id="req_color",
+    )
+
+    rec = runner.request_history[0]
+    assert rec["failure_reason"] == "aider exited with code 1: boom"
+    assert "\x1b" not in rec["failure_reason"]  # Ensure no escape codes remain
+
+
 def test_run_aider_reports_empty_output(monkeypatch):
     """If aider exits silently, a placeholder reason should be recorded."""
 

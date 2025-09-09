@@ -85,6 +85,12 @@ def test_extract_cost_missing():
     assert text_utils.extract_cost(line) is None
 
 
+def test_strip_ansi_removes_escape_sequences():
+    """ANSI color codes should be stripped out leaving plain text."""
+    colored = "\x1b[31merror\x1b[0m"  # Red text followed by reset
+    assert text_utils.strip_ansi(colored) == "error"
+
+
 def test_needs_user_input_detects_prompt():
     """Lines that start with 'Please' and end with '?' require user action."""
     line = "Please add README.md to the chat so I can generate the exact SEARCH/REPLACE blocks?"

@@ -6,7 +6,7 @@ from tkinter import ttk
 
 # Import helpers from the modular utils package so contributors can edit
 # specific areas without touching a monolithic file.
-from utils.text import should_suppress, needs_user_input, extract_cost
+from utils.text import should_suppress, needs_user_input, extract_cost, strip_ansi
 from utils.git import extract_commit_id, get_commit_stats
 
 # Track details for each user request so they can be shown in a history table.
@@ -167,9 +167,9 @@ def run_aider(
             output_widget.configure(state="disabled")
 
             # Keep track of the latest meaningful line for error reporting
-            stripped = line.strip()
-            if stripped:
-                last_line = stripped
+            clean = strip_ansi(line).strip()  # Remove color codes before analysis
+            if clean:  # Ignore lines that become empty once ANSI codes are stripped
+                last_line = clean
 
             # Try to extract a commit hash from the stream.
             cid = extract_commit_id(line)
@@ -202,8 +202,8 @@ def run_aider(
 
         proc.wait()
         if not last_line:
-            # When aider produces no output, remember that fact so the
-            # failure message doesn't end with a confusing empty colon.
+            # If all lines were empty after stripping colors, remember that fact
+            # so the failure message doesn't end with a confusing empty colon.
             last_line = "no output captured"
 
         if commit_id:
