@@ -1,0 +1,150 @@
+"""Configuration and build helpers.
+
+Centralizing configuration logic in this module keeps code organized and
+reduces the likelihood of merge conflicts in unrelated areas of the
+project.
+"""
+import glob
+import os
+import configparser  # Read/write simple configuration values
+from pathlib import Path  # Locate config file relative to this module
+from typing import Optional
+import shutil  # Locate executables on the PATH
+import subprocess  # Run external commands like git or Unity
+
+# Path to the shared config file sitting next to this module
+CONFIG_PATH = Path(__file__).with_name("config.ini")
+
+# File where we remember the last working directory selected by the user.
+# Keeping it separate from the main config avoids storing file paths in
+# config.ini as per project guidelines.
+WORKING_DIR_CACHE_PATH = Path(__file__).with_name("last_working_dir.txt")
+
+
+def load_timeout(config_path: Path = CONFIG_PATH) -> int:
+    """Return timeout (minutes) from config or default to 5."""
+    config = configparser.ConfigParser()
+    if config_path.exists():
+        config.read(config_path)
+    return config.getint("ui", "timeout_minutes", fallback=5)
+
+
+def save_timeout(value: int, config_path: Path = CONFIG_PATH) -> None:
+    """Persist the timeout value back to the config file."""
+    config = configparser.ConfigParser()
+    if config_path.exists():
+        config.read(config_path)
+    # Ensure required sections exist before assigning values
+    if "ui" not in config:
+        config["ui"] = {}
+    config["ui"]["timeout_minutes"] = str(value)
+    with open(config_path, "w") as fh:
+        config.write(fh)
+
+
+def load_default_model(config_path: Path = CONFIG_PATH) -> str:
+    """Return the model to use on startup."""
+    # Model selection is no longer persisted between sessions, so we always start
+    # with the medium quality model (`gpt-5-mini`).
+    return "gpt-5-mini"
+
+
+def save_default_model(model: str, config_path: Path = CONFIG_PATH) -> None:
+    """Remember the selected model for the current run only."""
+    # The application intentionally forgets the model when it exits, so this
+    # function is effectively a no-op. It exists to keep the call sites simple
+    # and to make the intent explicit.
+    return None
+
+
+def load_working_dir(cache_path: Path = WORKING_DIR_CACHE_PATH) -> Optional[str]:
+    """Return the cached working directory or None if it is missing or empty."""
+    if cache_path.exists():
+        text = cache_path.read_text().strip()
+        # An empty file means no cached path was saved.
+        return text or None
+    return None
+
+
+def save_working_dir(path: str, cache_path: Path = WORKING_DIR_CACHE_PATH) -> None:
+    """Persist the selected working directory so it can be reloaded later."""
+    with open(cache_path, "w") as fh:
+        fh.write(path)
+
+
+def load_usage_days(config_path: Path = CONFIG_PATH) -> int:
+    """Return how many days of API usage history to request."""
+    config = configparser.ConfigParser()
+    if config_path.exists():
+        config.read(config_path)
+    return config.getint("api", "usage_days", fallback=30)
+
+
+def _find_unity_exe(config_path: Path = CONFIG_PATH) -> str:
+    """Locate the Unity Editor executable using config, env var, or auto-search."""
+    cfg = configparser.ConfigParser()
+    build_cmd = None
+
+    # 1) Read build_cmd from the optional [build] section of config.ini
+    if config_path.exists():
+        cfg.read(config_path)
+        build_cmd = cfg.get("build", "build_cmd", fallback="").strip() or None
+
+    # 2) Fall back to UNITY_PATH environment variable
+    build_cmd = build_cmd or os.environ.get("UNITY_PATH")
+
+    # 3) Auto-discover Unity installations if nothing was specified
+    if not build_cmd:
+        candidates = glob.glob(r"C:\\Program Files\\Unity\\Hub\\Editor\\*\\Editor\\Unity.exe")
+        if candidates:
+            # Choose the highest version by sorting the folder names
+            build_cmd = sorted(candidates)[-1]
+
+    # 4) Validate that the resulting path points to a file
+    if build_cmd and Path(build_cmd).is_file():
+        return build_cmd
+
+    raise FileNotFoundError(
+        "Unity Editor executable not found.\n"
+        "Set config build_cmd to the full path to Unity.exe or define UNITY_PATH.\n"
+        "Example: C:\\Program Files\\Unity\\Hub\\Editor\\2022.3.20f1\\Editor\\Unity.exe"
+    )
+
+
+def build_and_launch_game(build_cmd=None, run_cmd=None):
+    """Build the Unity project then start the resulting executable."""
+    if build_cmd is None:
+        # Resolve Unity.exe using config/environment and build in batch mode
+        unity_exe = _find_unity_exe()
+        build_cmd = [
+            unity_exe,
+            "-batchmode",
+            "-nographics",
+            "-quit",
+            "-executeMethod",
+            "BuildScript.PerformBuild",
+        ]
+    if run_cmd is None:
+        # Launch the game using a placeholder executable name
+        run_cmd = ["./YourGameExecutable"]
+
+    # Ensure the build tool exists before attempting to run it
+    if shutil.which(build_cmd[0]) is None:
+        raise FileNotFoundError(
+            f"Build tool '{build_cmd[0]}' not found. "
+            "Install Unity or provide the full path via build_cmd."
+        )
+
+    # Build the project; check=True ensures we raise on failure
+    subprocess.run(build_cmd, check=True)
+
+    # Confirm the game binary was produced by the build step
+    game_path = Path(run_cmd[0])
+    if not game_path.exists():
+        raise FileNotFoundError(
+            f"Game binary '{run_cmd[0]}' not found. "
+            "Verify the build output path."
+        )
+
+    # Start the game without waiting for it to exit
+    return subprocess.Popen(run_cmd)

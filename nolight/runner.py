@@ -5,13 +5,10 @@ from typing import Optional, List
 import tkinter as tk
 from tkinter import ttk
 
-from utils import (
-    should_suppress,
-    extract_commit_id,
-    needs_user_input,
-    update_status,
-    get_commit_stats,
-)
+# Import helpers from the modular utils package so contributors can edit
+# specific areas without touching a monolithic file.
+from utils.text import should_suppress, needs_user_input
+from utils.git import extract_commit_id, get_commit_stats
 
 # Track details for each user request so they can be shown in a history table.
 request_history: List[dict] = []  # List of per-request summaries
@@ -19,6 +16,14 @@ current_request_id: Optional[str] = None  # UUID for the active request
 request_active = False  # True while we're waiting on aider to finish
 # When set, the next request should clear the output widget before running.
 reset_on_new_request = False
+
+
+def update_status(status_var, status_label, message: str, color: str = "black") -> None:
+    """Set a Tk status label's text and color in one call."""
+    # Display the message so the user knows what is happening
+    status_var.set(message)
+    # Color-code the message to communicate success or failure at a glance
+    status_label.config(foreground=color)
 
 
 def record_request(

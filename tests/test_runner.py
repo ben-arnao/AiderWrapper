@@ -149,3 +149,29 @@ def test_maybe_clear_output_no_reset_when_flag_unset():
     runner.request_active = False
     runner.maybe_clear_output(widget)
     assert widget.content == "stay"
+
+
+def test_update_status_sets_message_and_color():
+    """update_status should set both the text and the color."""
+
+    class DummyVar:
+        def __init__(self):
+            self.value = ""
+
+        def set(self, value):
+            # Store the last message assigned to the variable
+            self.value = value
+
+    class DummyLabel:
+        def __init__(self):
+            self.fg = ""
+
+        def config(self, **kwargs):
+            # Capture the requested foreground color
+            self.fg = kwargs.get("foreground", self.fg)
+
+    var = DummyVar()
+    lbl = DummyLabel()
+    runner.update_status(var, lbl, "hello", "green")
+    assert var.value == "hello"
+    assert lbl.fg == "green"

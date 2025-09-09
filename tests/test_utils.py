@@ -1,24 +1,31 @@
 import sys
 import types
+import sys
+import types
 from pathlib import Path
 import subprocess
 
 import pytest
 
-# Ensure the project root is on the Python path so we can import utils
+# Ensure the project root is on the Python path so we can import the utils package
 sys.path.append(str(Path(__file__).resolve().parents[1]))
-import utils
+
+# Pull in individual util modules to make dependencies explicit
+import utils.text as text_utils
+import utils.api as api_utils
+import utils.config as config_utils
+import utils.git as git_utils
 
 
 def test_sanitize_removes_noise():
     """Quotes and newlines should be stripped out."""
     raw = "Hello\n'Quote'  Test"
-    assert utils.sanitize(raw) == "Hello Quote Test"
+    assert text_utils.sanitize(raw) == "Hello Quote Test"
 
 
 def test_should_suppress_matches_known_warning():
     line = "Can't initialize prompt toolkit: No Windows console found"
-    assert utils.should_suppress(line)
+    assert text_utils.should_suppress(line)
 
 
 def test_verify_api_key_success():
@@ -29,7 +36,7 @@ def test_verify_api_key_success():
         resp.status_code = 200
         return resp
 
-    assert utils.verify_api_key("key", request_fn=fake_request)
+    assert api_utils.verify_api_key("key", request_fn=fake_request)
 
 
 def test_verify_api_key_failure():
@@ -42,7 +49,7 @@ def test_verify_api_key_failure():
         return resp
 
     with pytest.raises(ValueError) as exc:
-        utils.verify_api_key("key", request_fn=bad_request)
+        api_utils.verify_api_key("key", request_fn=bad_request)
     assert "401" in str(exc.value)
     assert "unauthorized" in str(exc.value)
 
@@ -51,73 +58,73 @@ def test_verify_api_key_missing():
     """Empty keys should raise an explicit error."""
 
     with pytest.raises(ValueError):
-        utils.verify_api_key("")
+        api_utils.verify_api_key("")
 
 
 def test_extract_commit_id_found():
     """A commit hash embedded in the text should be returned."""
     text = "Some output\nCommitted abcdef1 add feature\n"
-    assert utils.extract_commit_id(text) == "abcdef1"
+    assert git_utils.extract_commit_id(text) == "abcdef1"
 
 
 def test_extract_commit_id_missing():
     """If no commit hash is present, None should be returned."""
     text = "Aider did nothing useful"
-    assert utils.extract_commit_id(text) is None
+    assert git_utils.extract_commit_id(text) is None
 
 
 def test_extract_cost_found():
     """Dollar amounts should be parsed as floats."""
     line = "Total cost: $1.23"
-    assert utils.extract_cost(line) == 1.23
+    assert text_utils.extract_cost(line) == 1.23
 
 
 def test_extract_cost_missing():
     """Lines without dollar amounts should return None."""
     line = "No money mentioned here"
-    assert utils.extract_cost(line) is None
+    assert text_utils.extract_cost(line) is None
 
 
 def test_needs_user_input_detects_prompt():
     """Lines that start with 'Please' and end with '?' require user action."""
     line = "Please add README.md to the chat so I can generate the exact SEARCH/REPLACE blocks?"
-    assert utils.needs_user_input(line)
+    assert text_utils.needs_user_input(line)
 
 
 def test_needs_user_input_ignores_regular_output():
     """Normal output lines should not be flagged as requiring input."""
     line = "Aider v0.86.1"
-    assert not utils.needs_user_input(line)
+    assert not text_utils.needs_user_input(line)
 
 
 def test_load_and_save_timeout(tmp_path: Path):
     """Saving then loading should persist the timeout value."""
     cfg = tmp_path / "config.ini"
     # When file is missing, default should be 5
-    assert utils.load_timeout(cfg) == 5
+    assert config_utils.load_timeout(cfg) == 5
     # After saving a new value, it should round-trip
-    utils.save_timeout(10, cfg)
-    assert utils.load_timeout(cfg) == 10
+    config_utils.save_timeout(10, cfg)
+    assert config_utils.load_timeout(cfg) == 10
 
 
 def test_load_and_save_working_dir(tmp_path: Path):
     """The last selected working directory should persist between runs."""
     cache = tmp_path / "dir.txt"
     # Without a cache file we expect None
-    assert utils.load_working_dir(cache) is None
+    assert config_utils.load_working_dir(cache) is None
     # After saving a path it should load back the same value
-    utils.save_working_dir("/path/to/dir", cache)
-    assert utils.load_working_dir(cache) == "/path/to/dir"
+    config_utils.save_working_dir("/path/to/dir", cache)
+    assert config_utils.load_working_dir(cache) == "/path/to/dir"
 
 
 def test_model_selection_is_not_persisted(tmp_path: Path):
     """Saving the model should have no effect on subsequent loads."""
     cfg = tmp_path / "config.ini"
     # Loading should always return the medium model regardless of config file.
-    assert utils.load_default_model(cfg) == "gpt-5-mini"
+    assert config_utils.load_default_model(cfg) == "gpt-5-mini"
     # Attempting to save a different model should not create or modify the file.
-    utils.save_default_model("gpt-5", cfg)
-    assert utils.load_default_model(cfg) == "gpt-5-mini"
+    config_utils.save_default_model("gpt-5", cfg)
+    assert config_utils.load_default_model(cfg) == "gpt-5-mini"
     # Config file should not exist because nothing was persisted.
     assert not cfg.exists()
 
@@ -159,17 +166,17 @@ def test_get_commit_stats(tmp_path: Path):
         ).stdout.strip()
     )
 
-    stats1 = utils.get_commit_stats(commit1, repo)
+    stats1 = git_utils.get_commit_stats(commit1, repo)
     assert stats1["lines_added"] == 2
     assert stats1["files_added"] == 1
 
-    stats2 = utils.get_commit_stats(commit2, repo)
+    stats2 = git_utils.get_commit_stats(commit2, repo)
     assert stats2["lines_added"] == 1
     assert stats2["lines_removed"] == 1
     assert stats2["files_changed"] == 1
     assert stats2["description"] == "modify file"
 
-    stats3 = utils.get_commit_stats(commit3, repo)
+    stats3 = git_utils.get_commit_stats(commit3, repo)
     assert stats3["files_removed"] == 1
     assert stats3["lines_removed"] == 2
 
@@ -193,7 +200,7 @@ def test_fetch_usage_data_parses_responses():
             }
         return resp
 
-    stats = utils.fetch_usage_data("key", days=30, request_fn=fake_request)
+    stats = api_utils.fetch_usage_data("key", days=30, request_fn=fake_request)
     assert stats["total_spent"] == pytest.approx(12.34)
     assert stats["credits_total"] == 20
     assert stats["credits_remaining"] == 15
@@ -210,33 +217,8 @@ def test_fetch_usage_data_error():
         return resp
 
     with pytest.raises(ValueError):
-        utils.fetch_usage_data("key", request_fn=bad_request)
+        api_utils.fetch_usage_data("key", request_fn=bad_request)
 
-
-def test_update_status_sets_message_and_color():
-    """update_status should set both the text and the color."""
-
-    class DummyVar:
-        def __init__(self):
-            self.value = ""
-
-        def set(self, value):
-            # Store the last message assigned to the variable
-            self.value = value
-
-    class DummyLabel:
-        def __init__(self):
-            self.fg = ""
-
-        def config(self, **kwargs):
-            # Capture the requested foreground color
-            self.fg = kwargs.get("foreground", self.fg)
-
-    var = DummyVar()
-    lbl = DummyLabel()
-    utils.update_status(var, lbl, "hello", "green")
-    assert var.value == "hello"
-    assert lbl.fg == "green"
 
 def test_build_and_launch_game_runs(monkeypatch, tmp_path):
     """Building then launching should invoke subprocess.run and subprocess.Popen."""
@@ -252,16 +234,16 @@ def test_build_and_launch_game_runs(monkeypatch, tmp_path):
         return types.SimpleNamespace()
 
     # Patch which() so the build tool appears to exist on the system
-    monkeypatch.setattr(utils.shutil, "which", lambda _cmd: "/usr/bin/build")
+    monkeypatch.setattr(config_utils.shutil, "which", lambda _cmd: "/usr/bin/build")
     # Replace subprocess functions with our fakes so no real commands run
-    monkeypatch.setattr(utils.subprocess, "run", fake_run)
-    monkeypatch.setattr(utils.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(config_utils.subprocess, "run", fake_run)
+    monkeypatch.setattr(config_utils.subprocess, "Popen", fake_popen)
 
     # Create a dummy game file to satisfy the existence check
     game = tmp_path / "game.exe"
     game.touch()
 
-    proc = utils.build_and_launch_game(["build"], [str(game)])
+    proc = config_utils.build_and_launch_game(["build"], [str(game)])
 
     assert calls == [("run", ["build"], True), ("popen", [str(game)])]
     assert isinstance(proc, types.SimpleNamespace)
@@ -274,31 +256,31 @@ def test_build_and_launch_game_propagates_build_error(monkeypatch):
         raise subprocess.CalledProcessError(1, cmd)
 
     # Pretend the build tool exists so we reach the failing run()
-    monkeypatch.setattr(utils.shutil, "which", lambda _cmd: "/usr/bin/build")
-    monkeypatch.setattr(utils.subprocess, "run", fail_run)
+    monkeypatch.setattr(config_utils.shutil, "which", lambda _cmd: "/usr/bin/build")
+    monkeypatch.setattr(config_utils.subprocess, "run", fail_run)
 
     with pytest.raises(subprocess.CalledProcessError):
-        utils.build_and_launch_game(["build"], ["run"])
+        config_utils.build_and_launch_game(["build"], ["run"])
 
 
 def test_build_and_launch_game_missing_build_tool():
     """A missing build executable should raise FileNotFoundError."""
     with pytest.raises(FileNotFoundError):
-        utils.build_and_launch_game(["missing_tool"], ["run"])
+        config_utils.build_and_launch_game(["missing_tool"], ["run"])
 
 
 def test_build_and_launch_game_missing_game_binary(monkeypatch, tmp_path):
     """If the built game is absent, an explicit error should be raised."""
 
     # Pretend the build tool exists and the build command succeeds
-    monkeypatch.setattr(utils.shutil, "which", lambda _cmd: "/usr/bin/build")
-    monkeypatch.setattr(utils.subprocess, "run", lambda cmd, check: None)
+    monkeypatch.setattr(config_utils.shutil, "which", lambda _cmd: "/usr/bin/build")
+    monkeypatch.setattr(config_utils.subprocess, "run", lambda cmd, check: None)
 
     # Path to a game binary that was not created by the build step
     missing_game = tmp_path / "no_game.exe"
 
     with pytest.raises(FileNotFoundError):
-        utils.build_and_launch_game(["build"], [str(missing_game)])
+        config_utils.build_and_launch_game(["build"], [str(missing_game)])
 
 
 def test_find_unity_exe_from_config(tmp_path):
@@ -307,7 +289,7 @@ def test_find_unity_exe_from_config(tmp_path):
     unity.touch()  # create dummy executable
     cfg = tmp_path / "config.ini"
     cfg.write_text(f"[build]\nbuild_cmd = {unity}\n")
-    assert utils._find_unity_exe(cfg) == str(unity)
+    assert config_utils._find_unity_exe(cfg) == str(unity)
 
 
 def test_find_unity_exe_from_env(monkeypatch, tmp_path):
@@ -315,7 +297,7 @@ def test_find_unity_exe_from_env(monkeypatch, tmp_path):
     unity = tmp_path / "Unity.exe"
     unity.touch()
     monkeypatch.setenv("UNITY_PATH", str(unity))
-    assert utils._find_unity_exe(tmp_path / "missing.ini") == str(unity)
+    assert config_utils._find_unity_exe(tmp_path / "missing.ini") == str(unity)
 
 
 def test_find_unity_exe_autodiscover(monkeypatch, tmp_path):
@@ -329,16 +311,16 @@ def test_find_unity_exe_autodiscover(monkeypatch, tmp_path):
     newer.touch()
     monkeypatch.delenv("UNITY_PATH", raising=False)
     # Patch glob.glob to return our fake candidates
-    monkeypatch.setattr(utils.glob, "glob", lambda pattern: [str(older), str(newer)])
-    assert utils._find_unity_exe(tmp_path / "missing.ini") == str(newer)
+    monkeypatch.setattr(config_utils.glob, "glob", lambda pattern: [str(older), str(newer)])
+    assert config_utils._find_unity_exe(tmp_path / "missing.ini") == str(newer)
 
 
 def test_find_unity_exe_missing(monkeypatch, tmp_path):
     """An explicit error should be raised when Unity.exe cannot be found."""
     monkeypatch.delenv("UNITY_PATH", raising=False)
-    monkeypatch.setattr(utils.glob, "glob", lambda pattern: [])
+    monkeypatch.setattr(config_utils.glob, "glob", lambda pattern: [])
     with pytest.raises(FileNotFoundError) as exc:
-        utils._find_unity_exe(tmp_path / "missing.ini")
+        config_utils._find_unity_exe(tmp_path / "missing.ini")
     assert "Unity Editor executable not found" in str(exc.value)
 
 
@@ -353,7 +335,10 @@ def test_build_and_launch_game_uses_finder(monkeypatch, tmp_path):
     game.touch()
 
     # Provide a fake finder so we know the path used
-    monkeypatch.setattr(utils, "_find_unity_exe", lambda cfg=utils.CONFIG_PATH: str(unity))
+    # Replace the internal finder with one that returns our fake path
+    monkeypatch.setattr(
+        config_utils, "_find_unity_exe", lambda cfg=config_utils.CONFIG_PATH: str(unity)
+    )
 
     # Patch subprocess.run and Popen so nothing real executes
     def fake_run(cmd, check):
@@ -363,11 +348,11 @@ def test_build_and_launch_game_uses_finder(monkeypatch, tmp_path):
         calls.append(("popen", cmd))
         return types.SimpleNamespace()
 
-    monkeypatch.setattr(utils.subprocess, "run", fake_run)
-    monkeypatch.setattr(utils.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(utils.shutil, "which", lambda p: p)
+    monkeypatch.setattr(config_utils.subprocess, "run", fake_run)
+    monkeypatch.setattr(config_utils.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(config_utils.shutil, "which", lambda p: p)
 
-    proc = utils.build_and_launch_game(run_cmd=[str(game)])
+    proc = config_utils.build_and_launch_game(run_cmd=[str(game)])
 
     assert calls[0][1][0] == str(unity)
     assert isinstance(proc, types.SimpleNamespace)
