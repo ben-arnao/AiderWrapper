@@ -19,6 +19,7 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 - Draggable divider lets the prompt area take space from the response area when needed.
 - Successful commits highlight the status bar message in green.
 - After a successful commit, starting a new request clears prior output so separate conversations don't mix.
+- Aider output is sanitized to remove ANSI color codes so messages display cleanly.
 - Each request records its cost in dollars and the total session spend is shown in the main window.
 
 ## Development Best Practices

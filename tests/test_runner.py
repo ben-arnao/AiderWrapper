@@ -333,6 +333,82 @@ def test_run_aider_strips_ansi_from_failure_reason(monkeypatch):
     assert "\x1b" not in rec["failure_reason"]  # Ensure no escape codes remain
 
 
+def test_run_aider_strips_ansi_from_output(monkeypatch):
+    """Colored lines from aider should be displayed without escape sequences."""
+
+    runner.request_history.clear()
+
+    # Dummy widgets to capture what the runner writes to the output box
+    class DummyText:
+        def __init__(self):
+            self.text = ""
+
+        def insert(self, _idx, txt):
+            self.text += txt  # Record text shown to the user
+
+        def see(self, _idx):
+            pass
+
+        def configure(self, **_kwargs):
+            pass
+
+        def config(self, **_kwargs):
+            pass
+
+        def focus_set(self):
+            pass
+
+    class DummyVar:
+        def set(self, _val):
+            pass
+
+    class DummyLabel:
+        def config(self, **_kwargs):
+            pass
+
+        def unbind(self, *_args, **_kwargs):
+            pass
+
+    # Mock aider emitting a green commit line wrapped in ANSI codes
+    class MockPopen:
+        def __init__(self, *args, **kwargs):
+            self.stdout = io.StringIO("\x1b[32mCommitted abcdef1\x1b[0m\n")
+            self.returncode = 0
+
+        def wait(self):
+            return self.returncode
+
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: MockPopen())
+    monkeypatch.setattr(
+        runner, "get_commit_stats", lambda commit, repo: {"lines_changed": 0, "files_changed": 0, "files_added": 0, "files_removed": 0, "description": "d"}
+    )
+
+    output = DummyText()
+    txt_input = DummyText()
+    status_var = DummyVar()
+    status_label = DummyLabel()
+
+    runner.run_aider(
+        msg="hi",
+        output_widget=output,
+        txt_input=txt_input,
+        work_dir=".",
+        model="gpt-5",
+        status_var=status_var,
+        status_label=status_label,
+        request_id="req_strip",
+    )
+
+    # The output shown to the user should not include raw ANSI codes
+    assert "\x1b" not in output.text
+    # Commit should still be captured correctly despite color codes
+    rec = runner.request_history[0]
+    assert rec["commit_id"] == "abcdef1"
+
+
 def test_run_aider_reports_empty_output(monkeypatch):
     """If aider exits silently, a placeholder reason should be recorded."""
 
