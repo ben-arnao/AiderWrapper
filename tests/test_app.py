@@ -22,7 +22,7 @@ def test_launch_game_invokes_builder(monkeypatch):
     # Replace the real build function with our fake to capture invocation.
     monkeypatch.setattr(app, "build_and_launch_game", fake_build)
     # Stub out the error dialog to ensure it is not triggered on success.
-    monkeypatch.setattr(app.messagebox, "showerror", lambda *_: calls.append("error"))
+    monkeypatch.setattr(app, "show_build_error", lambda *_: calls.append("error"))
 
     app.launch_game("/tmp/project")
 
@@ -40,10 +40,104 @@ def test_launch_game_shows_error_on_failure(monkeypatch):
         raise FileNotFoundError("missing unity")
 
     monkeypatch.setattr(app, "build_and_launch_game", fake_build)
-    monkeypatch.setattr(app.messagebox, "showerror", lambda title, msg: errors.append((title, msg)))
+    # Capture the message passed to the custom error window instead of popping a real GUI.
+    monkeypatch.setattr(app, "show_build_error", lambda msg: errors.append(msg))
 
     app.launch_game("/tmp/project")
 
-    # The error dialog should report the reason for the failure.
-    assert errors == [("Build failed", "missing unity")]
+    # The error window should include the original message so users can copy it.
+    assert "missing unity" in errors[0]
+
+
+def test_show_build_error_creates_scrollable_text(monkeypatch):
+    """Error dialog should provide scrollable, selectable text."""
+
+    wins = []
+    texts = []
+    scrolls = []
+
+    class DummyWin:
+        """Minimal stand-in for ``tk.Toplevel`` used in tests."""
+
+        def __init__(self):
+            self.children = []
+
+        def title(self, text):
+            # Record the window title for assertions.
+            self.title_text = text
+
+        def rowconfigure(self, *_args, **_kwargs):
+            pass
+
+        def columnconfigure(self, *_args, **_kwargs):
+            pass
+
+    class DummyText:
+        """Fake ``tk.Text`` widget capturing inserted content and config."""
+
+        def __init__(self, parent, **kwargs):
+            parent.children.append(self)
+            self.kwargs = kwargs
+            self.content = ""
+
+        def configure(self, **kwargs):
+            self.kwargs.update(kwargs)
+
+        config = configure  # ``Text`` aliases ``config`` to ``configure``
+
+        def insert(self, _idx, text):
+            self.content = text
+
+        def grid(self, *_args, **_kwargs):
+            pass
+
+        def yview(self, *_args, **_kwargs):
+            pass
+
+    class DummyScrollbar:
+        """Fake vertical scrollbar that records its command callback."""
+
+        def __init__(self, parent, **kwargs):
+            parent.children.append(self)
+            self.orient = kwargs.get("orient")
+            self.command = kwargs.get("command")
+            self.set = lambda *_args, **_kwargs: None
+
+        def grid(self, *_args, **_kwargs):
+            pass
+
+    def fake_toplevel():
+        win = DummyWin()
+        wins.append(win)
+        return win
+
+    def fake_text(parent, **kwargs):
+        txt = DummyText(parent, **kwargs)
+        texts.append(txt)
+        return txt
+
+    def fake_scrollbar(parent, **kwargs):
+        sc = DummyScrollbar(parent, **kwargs)
+        scrolls.append(sc)
+        return sc
+
+    # Replace real widgets with our fakes to avoid needing a GUI environment.
+    monkeypatch.setattr(app.tk, "Toplevel", fake_toplevel)
+    monkeypatch.setattr(app.tk, "Text", fake_text)
+    monkeypatch.setattr(app.ttk, "Scrollbar", fake_scrollbar)
+
+    app.show_build_error("traceback info")
+
+    win = wins[0]
+    txt = texts[0]
+    sc = scrolls[0]
+
+    # The window should be titled and contain our message.
+    assert win.title_text == "Build failed"
+    assert txt.content == "traceback info"
+    # The text widget should be wired to the scrollbar for vertical scrolling.
+    assert txt.kwargs["yscrollcommand"] == sc.set
+    assert sc.orient == "vertical"
+    # Text should be read-only so users can't accidentally modify it.
+    assert txt.kwargs["state"] == "disabled"
 
