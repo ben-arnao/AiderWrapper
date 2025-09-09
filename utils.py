@@ -18,6 +18,11 @@ NO_TTY_REGEXES = [re.compile(pat) for pat in NO_TTY_PATTERNS]
 # Path to the shared config file sitting next to this module
 CONFIG_PATH = Path(__file__).with_name("config.ini")
 
+# File where we remember the last Unity project directory selected by the user.
+# Keeping it separate from the main config avoids storing file paths in
+# config.ini as per project guidelines.
+PROJECT_CACHE_PATH = Path(__file__).with_name("last_project_dir.txt")
+
 # Regex used to detect commit hashes in aider output
 COMMIT_RE = re.compile(r"(?:Committed|commit) ([0-9a-f]{7,40})", re.IGNORECASE)
 
@@ -76,6 +81,21 @@ def save_timeout(value: int, config_path: Path = CONFIG_PATH) -> None:
     config["ui"] = {"timeout_minutes": str(value)}
     with open(config_path, "w") as fh:
         config.write(fh)
+
+
+def load_project_dir(cache_path: Path = PROJECT_CACHE_PATH) -> str | None:
+    """Return the cached Unity project path or None if it is missing or empty."""
+    if cache_path.exists():
+        text = cache_path.read_text().strip()
+        # An empty file means no cached path was saved.
+        return text or None
+    return None
+
+
+def save_project_dir(path: str, cache_path: Path = PROJECT_CACHE_PATH) -> None:
+    """Persist the selected Unity project path so it can be reloaded later."""
+    with open(cache_path, "w") as fh:
+        fh.write(path)
 
 
 def extract_commit_id(text: str) -> str | None:
