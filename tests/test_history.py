@@ -15,6 +15,7 @@ def test_format_history_row_truncates_ids():
         "commit_id": "fedcba0987654321",  # Longer than display length
         "lines": 12,
         "files": 3,
+        "cost": 1.23,
         "failure_reason": "oops",
         "description": "something happened",
     }
@@ -23,7 +24,7 @@ def test_format_history_row_truncates_ids():
     assert row[0] == "12345678"
     assert row[1] == "fedcba09"
     # The rest of the fields should pass through unchanged
-    assert row[2:] == (12, 3, "oops", "something happened")
+    assert row[2:] == (12, 3, 1.23, "oops", "something happened")
 
 
 def test_history_column_width_defaults():
@@ -33,6 +34,7 @@ def test_history_column_width_defaults():
         "commit_id": 80,
         "lines": 60,
         "files": 60,
+        "cost": 80,
         "failure_reason": 200,
         "description": 300,
     }

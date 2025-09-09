@@ -19,6 +19,7 @@ HISTORY_COL_WIDTHS = {
     "commit_id": 80,
     "lines": 60,
     "files": 60,
+    "cost": 80,
     "failure_reason": 200,
     "description": 300,
 }
@@ -108,6 +109,7 @@ def format_history_row(rec: dict) -> tuple:
         abbreviate(rec.get("commit_id")),
         rec.get("lines", 0),
         rec.get("files", 0),
+        rec.get("cost", 0.0),
         rec.get("failure_reason", ""),
         rec.get("description", ""),
     )

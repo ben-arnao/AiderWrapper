@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 import io
+import pytest
 
 # Ensure project root is on path so we can import the package
 sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -23,6 +24,7 @@ def test_record_request_success():
     assert rec["commit_id"] == "abc123"
     assert rec["lines"] == 5
     assert rec["files"] == 1
+    assert rec["cost"] == 0.0
     assert rec["failure_reason"] is None
     assert rec["description"] == "demo"
 
@@ -35,6 +37,7 @@ def test_record_request_failure():
     assert rec["commit_id"] is None
     assert rec["lines"] == 0
     assert rec["files"] == 0
+    assert rec["cost"] == 0.0
     assert rec["failure_reason"] == "error"
 
 
@@ -110,8 +113,87 @@ def test_run_aider_records_exit_reason(monkeypatch):
 
     rec = runner.request_history[0]
     assert rec["failure_reason"] == "aider exited with code 2: boom"
+    assert rec["cost"] == 0.0
     # The status message should mention the request id and failure reason
     assert status_var.value == "Request req1: failed - aider exited with code 2: boom"
+
+
+def test_run_aider_records_cost(monkeypatch):
+    """run_aider should parse cost lines and track session totals."""
+    runner.request_history.clear()
+    runner.session_total_cost = 0.0
+
+    class DummyText:
+        def __init__(self):
+            self.text = ""
+
+        def insert(self, _idx, txt):
+            self.text += txt
+
+        def see(self, _idx):
+            pass
+
+        def configure(self, **kwargs):
+            pass
+
+        def config(self, **kwargs):
+            pass
+
+        def focus_set(self):
+            pass
+
+    class DummyVar:
+        def __init__(self):
+            self.value = ""
+
+        def set(self, _val):
+            self.value = _val
+
+    class DummyLabel:
+        def config(self, **kwargs):
+            pass
+
+        def unbind(self, *_args, **_kwargs):
+            pass
+
+    class MockPopen:
+        def __init__(self, *args, **kwargs):
+            # Include cost line so the runner can parse it
+            self.stdout = io.StringIO(
+                "Committed abcdef1\nTokens: cost line\nCost: $0.50 message, $0.50 session.\n"
+            )
+            self.returncode = 0
+
+        def wait(self):
+            return self.returncode
+
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: MockPopen())
+    monkeypatch.setattr(
+        runner, "get_commit_stats", lambda commit, repo: {"lines_changed": 0, "files_changed": 0, "files_added": 0, "files_removed": 0, "description": "d"}
+    )
+
+    output = DummyText()
+    txt_input = DummyText()
+    status_var = DummyVar()
+    status_label = DummyLabel()
+
+    runner.run_aider(
+        msg="hi",
+        output_widget=output,
+        txt_input=txt_input,
+        work_dir=".",
+        model="gpt-5",
+        status_var=status_var,
+        status_label=status_label,
+        request_id="req1",
+    )
+
+    rec = runner.request_history[0]
+    assert rec["cost"] == pytest.approx(0.50)
+    assert runner.session_total_cost == pytest.approx(0.50)
 
 
 class DummyWidget:
