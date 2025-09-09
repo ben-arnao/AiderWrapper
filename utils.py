@@ -104,24 +104,26 @@ def save_timeout(value: int, config_path: Path = CONFIG_PATH) -> None:
 
 
 def load_default_model(config_path: Path = CONFIG_PATH) -> str:
-    """Return the default model choice stored in config or a sensible fallback."""
-    config = configparser.ConfigParser()
-    if config_path.exists():
-        config.read(config_path)
-    return config.get("aider", "default_model", fallback="gpt-5-mini")
+    """Return the model to use on startup.
+
+    Model selection is no longer persisted between sessions, so we always start
+    with the medium quality model (`gpt-5-mini`).
+    """
+
+    # Always use the medium model regardless of any existing config file.
+    return "gpt-5-mini"
 
 
 def save_default_model(model: str, config_path: Path = CONFIG_PATH) -> None:
-    """Persist the selected model so it can be restored on next launch."""
-    config = configparser.ConfigParser()
-    if config_path.exists():
-        config.read(config_path)
-    if "aider" not in config:
-        config["aider"] = {}
-    config["aider"]["default_model"] = model
-    # Make sure we don't lose other sections such as [ui]
-    with open(config_path, "w") as fh:
-        config.write(fh)
+    """Remember the selected model for the current run only.
+
+    The application intentionally forgets the model when it exits, so this
+    function is effectively a no-op. It exists to keep the call sites simple
+    and to make the intent explicit.
+    """
+
+    # Do nothing so no config file is written.
+    return None
 
 
 def load_working_dir(cache_path: Path = WORKING_DIR_CACHE_PATH) -> Optional[str]:

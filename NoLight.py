@@ -17,8 +17,6 @@ from utils import (
     needs_user_input,
     load_working_dir,
     save_working_dir,
-    load_default_model,
-    save_default_model,
     get_commit_stats,  # Compute line/file counts for commits
 )
 
@@ -29,9 +27,8 @@ MODEL_OPTIONS = {
     "Low": "gpt-5-nano",
 }
 
-# Read default model from config.ini using helper that falls back gracefully
-DEFAULT_MODEL = load_default_model()
-DEFAULT_CHOICE = next((k for k, v in MODEL_OPTIONS.items() if v == DEFAULT_MODEL), "Medium")
+# Always start with the medium model; the choice isn't persisted between runs.
+DEFAULT_CHOICE = "Medium"
 
 # Track details for each user request so they can be shown in a history table.
 request_history: List[dict] = []  # List of per-request summaries
@@ -147,20 +144,19 @@ def run_aider(
             try:
                 # Query git for stats about the commit so we can store them.
                 stats = get_commit_stats(commit_id, work_dir)
+                # Store a simple summary of how many lines and files changed.
+                lines_total = stats["lines_changed"]
+                files_total = (
+                    stats["files_changed"]
+                    + stats["files_added"]
+                    + stats["files_removed"]
+                )
                 request_history.append(
                     {
                         "request_id": request_id,
                         "commit_id": commit_id,
-                        "lines": {
-                            "changed": stats["lines_changed"],
-                            "added": stats["lines_added"],
-                            "removed": stats["lines_removed"],
-                        },
-                        "files": {
-                            "changed": stats["files_changed"],
-                            "added": stats["files_added"],
-                            "removed": stats["files_removed"],
-                        },
+                        "lines": lines_total,
+                        "files": files_total,
                         "failure_reason": None,
                         "description": stats["description"],
                     }
@@ -174,8 +170,8 @@ def run_aider(
                     {
                         "request_id": request_id,
                         "commit_id": commit_id,
-                        "lines": {"changed": 0, "added": 0, "removed": 0},
-                        "files": {"changed": 0, "added": 0, "removed": 0},
+                        "lines": 0,
+                        "files": 0,
                         "failure_reason": f"stats error: {e}",
                         "description": "",
                     }
@@ -201,8 +197,8 @@ def run_aider(
                 {
                     "request_id": request_id,
                     "commit_id": None,
-                    "lines": {"changed": 0, "added": 0, "removed": 0},
-                    "files": {"changed": 0, "added": 0, "removed": 0},
+                    "lines": 0,
+                    "files": 0,
                     "failure_reason": failure_reason,
                     "description": "",
                 }
@@ -220,8 +216,8 @@ def run_aider(
             {
                 "request_id": request_id,
                 "commit_id": None,
-                "lines": {"changed": 0, "added": 0, "removed": 0},
-                "files": {"changed": 0, "added": 0, "removed": 0},
+                "lines": 0,
+                "files": 0,
                 "failure_reason": "aider not found",
                 "description": "",
             }
@@ -366,21 +362,13 @@ model_combo = ttk.Combobox(
 )
 model_combo.grid(row=2, column=3, sticky="w", pady=(4, 0))
 
-
-def on_model_change(*args):
-    """Persist model choice whenever the user selects a different option."""
-    save_default_model(MODEL_OPTIONS[model_var.get()])
-
-
-model_var.trace_add("write", on_model_change)
-
 # Input label
 lbl = ttk.Label(main, text="What can I do for you today?")
 lbl.grid(row=3, column=0, sticky="w", pady=(4, 0))
 
 # Multiline input (Shift+Enter for newline; Enter to send)
 txt_input = scrolledtext.ScrolledText(main, width=100, height=6, wrap="word")
-txt_input.grid(row=4, column=0, columnspan=4, sticky="nsew", pady=(4, 8))
+txt_input.grid(row=4, column=0, columnspan=4, sticky="nsew", pady=(4, 0))
 main.rowconfigure(4, weight=0)
 
 
@@ -399,14 +387,19 @@ txt_input.focus_set()
 
 # Status bar communicates whether we're waiting on aider or user input
 status_var = tk.StringVar(value="Aider is waiting on our input")
-status_label = ttk.Label(main, textvariable=status_var)
-status_label.grid(row=5, column=0, columnspan=4, sticky="w", pady=(0, 6))
+# Frame with a border so the status bar looks visually distinct and "boxed".
+status_frame = ttk.Frame(main, borderwidth=1, relief="solid")
+status_frame.grid(row=5, column=0, columnspan=4, sticky="ew", pady=0)
+status_label = ttk.Label(status_frame, textvariable=status_var)
+# Expand label to fill the frame horizontally.
+status_label.pack(fill="x", padx=2, pady=2)
 
 # Output area where aider output is streamed
 output = scrolledtext.ScrolledText(
     main, width=100, height=24, wrap="word", state="disabled"
 )
-output.grid(row=6, column=0, columnspan=4, sticky="nsew")
+# Attach the output area directly below the status frame with no spacing.
+output.grid(row=6, column=0, columnspan=4, sticky="nsew", pady=(0, 0))
 main.rowconfigure(6, weight=1)
 
 
@@ -414,15 +407,12 @@ def show_history():
     """Open a window displaying a table of previous requests."""
     win = tk.Toplevel(root)
     win.title("History")
+    # We only show total line and file counts for brevity.
     cols = (
         "request_id",
         "commit_id",
-        "lines_changed",
-        "lines_added",
-        "lines_removed",
-        "files_changed",
-        "files_added",
-        "files_removed",
+        "lines",
+        "files",
         "failure_reason",
         "description",
     )
@@ -436,12 +426,8 @@ def show_history():
             values=(
                 rec.get("request_id"),
                 rec.get("commit_id", ""),
-                rec["lines"]["changed"],
-                rec["lines"]["added"],
-                rec["lines"]["removed"],
-                rec["files"]["changed"],
-                rec["files"]["added"],
-                rec["files"]["removed"],
+                rec.get("lines", 0),
+                rec.get("files", 0),
                 rec.get("failure_reason", ""),
                 rec.get("description", ""),
             ),
