@@ -105,12 +105,35 @@ def _find_unity_exe(config_path: Path = CONFIG_PATH) -> str:
     )
 
 
+def resolve_game_executable(project_path: str, preferred_name: str = "NoLight.exe") -> Path:
+    """Return the path to the built Windows game executable.
+
+    Parameters
+    ----------
+    project_path:
+        Root of the Unity project that contains the ``Builds/Windows`` folder.
+    preferred_name:
+        The expected ``.exe`` name. If it's missing, the first executable in the
+        directory is returned instead. A ``FileNotFoundError`` is raised when no
+        executables are present.
+    """
+
+    out_dir = Path(project_path) / "Builds" / "Windows"
+    preferred = out_dir / preferred_name
+    if preferred.exists():
+        return preferred
+    candidates = sorted(out_dir.glob("*.exe"))
+    if candidates:
+        return candidates[0]
+    raise FileNotFoundError(f"No .exe found in {out_dir}")
+
+
 def build_and_launch_game(
     build_cmd=None,
     run_cmd=None,
     project_path=None,
     unity_exe=None,
-    method="RogueLike2D.Editor.BuildScript.PerformBuild",
+    method="RogueLike2D.Editor.BuildScript.PerformWindowsBuild",
 ):
     """Build the Unity project then start the resulting executable.
 
@@ -118,16 +141,25 @@ def build_and_launch_game(
     ----------
     method:
         Fully-qualified Unity method used to trigger the build. The default
-        targets ``RogueLike2D.Editor.BuildScript.PerformBuild`` which wraps the
+        targets ``RogueLike2D.Editor.BuildScript.PerformWindowsBuild`` which wraps the
         project's Windows build logic. The command list avoids shell quoting so
         paths with spaces remain intact.
     """
+
+    # Determine the Unity project path if none was provided.
+    project_path = project_path or str(
+        Path(__file__).resolve().parents[2] / "NoLightUnityProject"
+    )
+
+    if run_cmd is None:
+        # Preferred name for the built game; Unity may produce a different one.
+        run_cmd = [
+            str(Path(project_path) / "Builds" / "Windows" / "NoLight.exe")
+        ]
+
     if build_cmd is None:
         # Resolve ``Unity.exe`` and construct the batch build command.
         unity_exe = unity_exe or _find_unity_exe()
-        project_path = project_path or str(
-            Path(__file__).resolve().parents[2] / "NoLightUnityProject"
-        )
         log_file = Path(project_path) / "Editor.log.batchbuild.txt"
         build_cmd = [
             unity_exe,
@@ -138,17 +170,13 @@ def build_and_launch_game(
             project_path,
             "-executeMethod",
             method,
+            "-customBuildPath",
+            run_cmd[0],
             "-logFile",
             str(log_file),
         ]
     else:
         log_file = None  # No Unity log when using a custom build command
-
-    if run_cmd is None:
-        # Default to launching the Windows build produced by ``BuildScript``.
-        run_cmd = [
-            str(Path(project_path or ".") / "Builds" / "Windows" / "NoLight.exe")
-        ]
 
     exe_path = build_cmd[0]
     # Ensure the build tool exists either on PATH or as an absolute file.
@@ -174,17 +202,22 @@ def build_and_launch_game(
         )
         raise RuntimeError(msg)
 
-    # Confirm the game binary was produced; if not, surface stderr/log tail for context.
+    # Confirm the game binary was produced; fall back to any .exe if the
+    # preferred name is missing so a successful build still launches.
     game_path = Path(run_cmd[0])
     if not game_path.exists():
-        tail = _read_log_tail(log_file) if log_file else ""
-        log_display = str(log_file) if log_file else "(no log file)"
-        msg = (
-            f"Game binary '{run_cmd[0]}' not found. Verify the build output path.\n"
-            f"STDERR:\n{stderr_text or '(empty)'}\n\n"
-            f"--- Log tail ({log_display}) ---\n{tail or '(log missing)'}"
-        )
-        raise FileNotFoundError(msg)
+        try:
+            game_path = resolve_game_executable(project_path, game_path.name)
+        except FileNotFoundError:
+            tail = _read_log_tail(log_file) if log_file else ""
+            log_display = str(log_file) if log_file else "(no log file)"
+            msg = (
+                f"Game binary '{run_cmd[0]}' not found. Verify the build output path.\n"
+                f"STDERR:\n{stderr_text or '(empty)'}\n\n"
+                f"--- Log tail ({log_display}) ---\n{tail or '(log missing)'}"
+            )
+            raise FileNotFoundError(msg)
 
     # Start the game without waiting for it to exit.
+    run_cmd = [str(game_path)]
     return subprocess.Popen(run_cmd)

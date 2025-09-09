@@ -350,6 +350,34 @@ def test_find_unity_exe_missing(monkeypatch, tmp_path):
     assert "Unity Editor executable not found" in str(exc.value)
 
 
+def test_resolve_game_executable_prefers_named(tmp_path):
+    """Preferred executable name should be used when available."""
+    out_dir = tmp_path / "Builds" / "Windows"
+    out_dir.mkdir(parents=True)
+    preferred = out_dir / "NoLight.exe"
+    preferred.touch()
+    other = out_dir / "RogueLike2D.exe"
+    other.touch()
+    assert config_utils.resolve_game_executable(tmp_path) == preferred
+
+
+def test_resolve_game_executable_fallback(tmp_path):
+    """If the preferred name is missing, fall back to any .exe."""
+    out_dir = tmp_path / "Builds" / "Windows"
+    out_dir.mkdir(parents=True)
+    candidate = out_dir / "RogueLike2D.exe"
+    candidate.touch()
+    assert config_utils.resolve_game_executable(tmp_path) == candidate
+
+
+def test_resolve_game_executable_missing(tmp_path):
+    """No executables should raise an explicit error."""
+    out_dir = tmp_path / "Builds" / "Windows"
+    out_dir.mkdir(parents=True)
+    with pytest.raises(FileNotFoundError):
+        config_utils.resolve_game_executable(tmp_path)
+
+
 def test_build_and_launch_game_uses_finder(monkeypatch, tmp_path):
     """When no build_cmd is supplied, _find_unity_exe should provide the path."""
     calls = []  # record subprocess usage
@@ -386,8 +414,11 @@ def test_build_and_launch_game_uses_finder(monkeypatch, tmp_path):
     # Ensure the fully-qualified build method is included in the command.
     idx = cmd.index("-executeMethod")
     assert (
-        cmd[idx + 1] == "RogueLike2D.Editor.BuildScript.PerformBuild"
+        cmd[idx + 1] == "RogueLike2D.Editor.BuildScript.PerformWindowsBuild"
     )
+    # The custom output path should be forwarded to Unity.
+    path_idx = cmd.index("-customBuildPath")
+    assert cmd[path_idx + 1] == str(game)
     assert isinstance(proc, types.SimpleNamespace)
 
 
