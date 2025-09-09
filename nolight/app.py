@@ -13,6 +13,7 @@ from utils.config import (
     load_working_dir,
     save_working_dir,
     load_usage_days,
+    build_and_launch_game,
 )
 from utils.git import format_history_row, HISTORY_COL_WIDTHS
 
@@ -27,6 +28,18 @@ MODEL_OPTIONS = {
 
 # Always start with the medium model; the choice isn't persisted between runs.
 DEFAULT_CHOICE = "Medium"
+
+
+def launch_game() -> None:
+    """Build and start the Unity project, showing any failures."""
+    try:
+        # Run the build and launch command; any configuration is handled
+        # inside ``build_and_launch_game``.
+        build_and_launch_game()
+    except Exception as exc:
+        # Surface errors to the user instead of failing silently so they can
+        # fix configuration issues such as a missing Unity installation.
+        messagebox.showerror("Build failed", str(exc))
 
 
 def main() -> None:
@@ -44,10 +57,16 @@ def main() -> None:
     for col in range(4):
         main_frame.columnconfigure(col, weight=1 if col == 1 else 0)
 
-    # API key status label
+    # API key status label sits on the left while the build button uses the
+    # rightmost column. The label spans three columns so it does not overlap
+    # the new button.
     api_status_label = ttk.Label(main_frame, text="API key: checking...", foreground="orange")
-    # Span all columns since the settings button was removed
-    api_status_label.grid(row=0, column=0, columnspan=4, sticky="w")
+    api_status_label.grid(row=0, column=0, columnspan=3, sticky="w")
+
+    # Button in the top-right corner lets the user build and run the game at
+    # any time for quick testing of changes.
+    build_btn = ttk.Button(main_frame, text="Build & Run", command=launch_game)
+    build_btn.grid(row=0, column=3, sticky="e")
 
     # Project directory selector
     work_dir_var = tk.StringVar(value="")
