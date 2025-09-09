@@ -201,6 +201,10 @@ def run_aider(
                 break
 
         proc.wait()
+        if not last_line:
+            # When aider produces no output, remember that fact so the
+            # failure message doesn't end with a confusing empty colon.
+            last_line = "no output captured"
 
         if commit_id:
             try:
