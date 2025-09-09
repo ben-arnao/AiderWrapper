@@ -26,6 +26,9 @@ USER_INPUT_REGEXES = [re.compile(pat, re.IGNORECASE) for pat in USER_INPUT_PATTE
 # Regex used to extract dollar amounts from aider output
 COST_RE = re.compile(r"\$([0-9]+(?:\.[0-9]+)?)")
 
+# Regex to match ANSI escape sequences like ``\x1b[31m`` which colorize terminal output
+ANSI_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+
 
 def sanitize(text: str) -> str:
     """Remove newlines and quotes, and collapse whitespace to single spaces."""
@@ -56,3 +59,9 @@ def needs_user_input(line: str) -> bool:
     # Trim whitespace and see if the remaining text matches our heuristic
     stripped = line.strip()
     return any(rx.match(stripped) for rx in USER_INPUT_REGEXES)
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes so only plain text remains."""
+    # Substitute any color/style escape sequences with an empty string
+    return ANSI_RE.sub("", text)
