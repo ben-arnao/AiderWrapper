@@ -30,12 +30,12 @@ MODEL_OPTIONS = {
 DEFAULT_CHOICE = "Medium"
 
 
-def launch_game() -> None:
-    """Build and start the Unity project, showing any failures."""
+def launch_game(project_path: str) -> None:
+    """Build and start the Unity project located at ``project_path``."""
     try:
-        # Run the build and launch command; any configuration is handled
-        # inside ``build_and_launch_game``.
-        build_and_launch_game()
+        # Pass the user-selected working directory to the builder so Unity
+        # knows which project to compile.
+        build_and_launch_game(project_path=project_path)
     except Exception as exc:
         # Surface errors to the user instead of failing silently so they can
         # fix configuration issues such as a missing Unity installation.
@@ -61,8 +61,13 @@ def build_ui(root: tk.Tk):
     api_status_label.grid(row=0, column=0, columnspan=3, sticky="w")
 
     # Button in the top-right corner lets the user build and run the game at
-    # any time for quick testing of changes.
-    build_btn = ttk.Button(main_frame, text="Build & Run", command=launch_game)
+    # any time for quick testing of changes. The selected working directory is
+    # forwarded so Unity knows which project to compile.
+    build_btn = ttk.Button(
+        main_frame,
+        text="Build & Run",
+        command=lambda: launch_game(work_dir_var.get()),
+    )
     build_btn.grid(row=0, column=3, sticky="e")
 
     # Project directory selector
