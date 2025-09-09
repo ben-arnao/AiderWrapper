@@ -3,7 +3,6 @@ import re
 import configparser  # Read/write simple configuration values
 from pathlib import Path  # Locate config file relative to this module
 from typing import Callable, Optional
-from datetime import date, timedelta  # Compute usage query window
 
 import subprocess  # Run external commands like git or Unity
 import shutil  # Locate executables on the PATH
@@ -34,6 +33,8 @@ WORKING_DIR_CACHE_PATH = Path(__file__).with_name("last_working_dir.txt")
 
 # Regex used to detect commit hashes in aider output
 COMMIT_RE = re.compile(r"(?:Committed|commit) ([0-9a-f]{7,40})", re.IGNORECASE)
+# Regex used to extract dollar amounts from aider output
+COST_RE = re.compile(r"\$([0-9]+(?:\.[0-9]+)?)")
 
 
 def sanitize(text: str) -> str:
@@ -149,6 +150,13 @@ def extract_commit_id(text: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
+def extract_cost(text: str) -> Optional[float]:
+    """Return the first dollar amount found in the text or ``None``."""
+
+    match = COST_RE.search(text)
+    return float(match.group(1)) if match else None
+
+
 def needs_user_input(line: str) -> bool:
     """Return True if the line indicates aider expects more information.
 
@@ -252,6 +260,7 @@ HISTORY_COL_WIDTHS = {
     "commit_id": 80,
     "lines": 60,
     "files": 60,
+    "cost": 80,
     "failure_reason": 200,
     "description": 300,
 }
@@ -277,79 +286,10 @@ def format_history_row(rec: dict) -> tuple:
         abbreviate(rec.get("commit_id")),
         rec.get("lines", 0),
         rec.get("files", 0),
+        (f"${rec['cost']:.2f}" if rec.get("cost") is not None else ""),
         rec.get("failure_reason", ""),
         rec.get("description", ""),
     )
-
-
-def load_usage_days(config_path: Path = CONFIG_PATH) -> int:
-    """Return the number of days of usage data to request.
-
-    The config file may define a [usage] section with ``billing_days`` to
-    control how far back we ask the OpenAI API for billing data. When the
-    section or key is missing, we default to 30 days so the UI has a sensible
-    window without requiring configuration.
-    """
-
-    config = configparser.ConfigParser()
-    if config_path.exists():
-        config.read(config_path)
-    return config.getint("usage", "billing_days", fallback=30)
-
-
-def fetch_usage_data(
-    api_key: str, days: int = 30, request_fn: Callable = requests.get
-) -> dict:
-    """Return spending and credit information for an API key.
-
-    Two OpenAI billing endpoints are queried: one for usage cost in the last
-    ``days`` days and another for the remaining credit. The function raises a
-    ``ValueError`` if either request fails so callers can surface a helpful
-    message to the user.
-    """
-
-    if not api_key:
-        raise ValueError("API key not provided")
-
-    headers = {"Authorization": f"Bearer {api_key}"}
-    end = date.today()
-    start = end - timedelta(days=days)
-
-    # Ask the billing endpoint for total usage in the desired window.
-    usage_resp = request_fn(
-        "https://api.openai.com/v1/dashboard/billing/usage",
-        headers=headers,
-        params={"start_date": start.isoformat(), "end_date": end.isoformat()},
-    )
-    if usage_resp.status_code != 200:
-        raise ValueError(
-            f"Usage request failed: {usage_resp.status_code} {getattr(usage_resp, 'text', '')}"
-        )
-    usage_json = usage_resp.json()
-
-    # Fetch remaining credit so we can report how much budget is left.
-    credit_resp = request_fn(
-        "https://api.openai.com/v1/dashboard/billing/credit_grants", headers=headers
-    )
-    if credit_resp.status_code != 200:
-        raise ValueError(
-            f"Credit request failed: {credit_resp.status_code} {getattr(credit_resp, 'text', '')}"
-        )
-    credit_json = credit_resp.json()
-
-    total_spent = usage_json.get("total_usage", 0) / 100  # API returns cents
-    total_granted = credit_json.get("total_granted", 0)
-    total_used = credit_json.get("total_used", 0)
-    total_available = credit_json.get("total_available", 0)
-    pct_used = (total_used / total_granted * 100) if total_granted else 0
-
-    return {
-        "total_spent": total_spent,
-        "credits_total": total_granted,
-        "credits_used": total_used,
-        "credits_remaining": total_available,
-        "pct_credits_used": pct_used,
-    }
 
 def build_and_launch_game(
     build_cmd=None, run_cmd=None

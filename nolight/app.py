@@ -1,7 +1,7 @@
 import threading
 import subprocess
 import tkinter as tk
-from tkinter import ttk, scrolledtext, filedialog, messagebox
+from tkinter import ttk, scrolledtext, filedialog
 import os
 import uuid
 
@@ -12,8 +12,6 @@ from utils import (
     save_timeout,
     load_working_dir,
     save_working_dir,
-    load_usage_days,
-    fetch_usage_data,
     format_history_row,
     HISTORY_COL_WIDTHS,
 )
@@ -201,12 +199,13 @@ def main() -> None:
         """Open a window displaying a table of previous requests."""
         win = tk.Toplevel(root)
         win.title("History")
-        # We only show total line and file counts for brevity.
+        # We only show total line, file counts, and per-request cost for brevity.
         cols = (
             "request_id",
             "commit_id",
             "lines",
             "files",
+            "cost",
             "failure_reason",
             "description",
         )
@@ -214,50 +213,22 @@ def main() -> None:
         for col in cols:
             tree.heading(col, text=col.replace("_", " ").title())
             # Keep IDs and counts narrow but give text fields extra room.
-            anchor = "e" if col in {"lines", "files"} else "w"
+            anchor = "e" if col in {"lines", "files", "cost"} else "w"
             tree.column(col, width=HISTORY_COL_WIDTHS[col], anchor=anchor)
         for rec in runner.request_history:
             # Abbreviate IDs before inserting so the table stays compact.
             tree.insert("", tk.END, values=format_history_row(rec))
         tree.pack(fill="both", expand=True)
 
-    def show_api_usage() -> None:
-        """Open a window displaying recent API spending and credit details."""
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            # Fail fast if the key is missing so the user knows why we cannot query.
-            messagebox.showerror("API Usage", "Env var OPENAI_API_KEY is not set")
-            return
-
-        # Read how far back to look for usage statistics from the config file.
-        days = load_usage_days()
-        try:
-            stats = fetch_usage_data(api_key, days=days)
-        except Exception as exc:
-            # Surface any API errors so the user can investigate.
-            messagebox.showerror("API Usage", str(exc))
-            return
-
-        # Average cost is approximated using the number of requests we have tracked.
-        avg_cost = stats["total_spent"] / len(runner.request_history) if runner.request_history else 0
-
-        win = tk.Toplevel(root)
-        win.title("API Usage")
-        msg = (
-            f"Amount spent (last {days} days): ${stats['total_spent']:.2f}\n"
-            f"Average cost per request: ${avg_cost:.2f}\n"
-            f"Credits remaining: ${stats['credits_remaining']:.2f} of ${stats['credits_total']:.2f}\n"
-            f"Percent credits used: {stats['pct_credits_used']:.2f}%"
-        )
-        ttk.Label(win, text=msg, justify="left").pack(padx=10, pady=10)
-
     # Simple button to pop up the history table
     history_btn = ttk.Button(main_frame, text="History", command=show_history)
     history_btn.grid(row=7, column=0, sticky="w", pady=(6, 0))
 
-    # Button to display API usage information
-    usage_btn = ttk.Button(main_frame, text="API usage", command=show_api_usage)
-    usage_btn.grid(row=7, column=3, sticky="e", pady=(6, 0))
+    # Display running total of money spent in the current session
+    session_cost_var = tk.StringVar(value="$0.00 spent this session")
+    runner.session_cost_var = session_cost_var
+    session_cost_label = ttk.Label(main_frame, textvariable=session_cost_var)
+    session_cost_label.grid(row=7, column=3, sticky="e", pady=(6, 0))
 
     def open_env_settings(event=None) -> None:
         """Open the system environment variable settings on Windows."""

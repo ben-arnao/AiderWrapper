@@ -8,6 +8,7 @@ from tkinter import scrolledtext, ttk
 from utils import (
     should_suppress,
     extract_commit_id,
+    extract_cost,
     needs_user_input,
     get_commit_stats,
     build_and_launch_game,
@@ -17,6 +18,8 @@ from utils import (
 request_history: List[dict] = []  # List of per-request summaries
 current_request_id: Optional[str] = None  # UUID for the active request
 request_active = False  # True while we're waiting on aider to finish
+session_cost = 0.0  # Total dollars spent during this app session
+session_cost_var: Optional[tk.StringVar] = None  # Label for displaying session cost
 
 
 def record_request(
@@ -25,6 +28,7 @@ def record_request(
     stats: Optional[dict] = None,
     failure_reason: Optional[str] = None,
     description: str = "",
+    cost: Optional[float] = None,
 ) -> None:
     """Append a summary of the request to ``request_history``.
 
@@ -41,6 +45,8 @@ def record_request(
         Text explaining why the request failed, if applicable.
     description:
         Short commit message suitable for display in the history table.
+    cost:
+        Dollar amount reported by aider for this request, if any.
     """
     # Compute totals from stats when available; otherwise fall back to zero.
     lines_total = stats["lines_changed"] if stats else 0
@@ -60,10 +66,18 @@ def record_request(
             "commit_id": commit_id,
             "lines": lines_total,
             "files": files_total,
+            "cost": cost,
             "failure_reason": failure_reason,
             "description": description,
         }
     )
+
+    # Update the running session cost and reflect it in the UI label.
+    global session_cost
+    if cost is not None:
+        session_cost += cost
+        if session_cost_var is not None:
+            session_cost_var.set(f"${session_cost:.2f} spent this session")
 
 
 def run_aider(
@@ -89,6 +103,8 @@ def run_aider(
     # Remove any previous "test changes" link before starting a new request
     status_label.config(foreground="black", cursor="")
     status_label.unbind("<Button-1>")
+
+    request_cost: Optional[float] = None  # Dollars reported by aider
 
     try:
         # Automatically answer "yes" to any prompts so the UI never hangs.
@@ -154,6 +170,11 @@ def run_aider(
             if cid:
                 commit_id = cid
 
+            # Capture any cost reported by aider for this request.
+            cost = extract_cost(line)
+            if cost is not None:
+                request_cost = cost
+
             # If aider is asking for more information, stop the process and let
             # the user reply instead of timing out.
             if needs_user_input(line):
@@ -179,7 +200,7 @@ def run_aider(
             try:
                 # Query git for stats about the commit so we can store them.
                 stats = get_commit_stats(commit_id, work_dir)
-                record_request(request_id, commit_id, stats)
+                record_request(request_id, commit_id, stats, cost=request_cost)
                 status_var.set(
                     f"Successfully made changes with commit id {commit_id}. Click to test changes"
                 )
@@ -195,6 +216,7 @@ def run_aider(
                     request_id,
                     commit_id,
                     failure_reason=f"stats error: {e}",
+                    cost=request_cost,
                 )
                 status_var.set(
                     f"Made commit {commit_id} but failed to gather stats"
@@ -213,7 +235,7 @@ def run_aider(
             output_widget.insert(tk.END, "-" * 60 + "\n")
             output_widget.configure(state="disabled")
             status_var.set(f"Failed to make commit due to {failure_reason}")
-            record_request(request_id, None, failure_reason=failure_reason)
+            record_request(request_id, None, failure_reason=failure_reason, cost=request_cost)
             request_active = False
     except FileNotFoundError:
         output_widget.configure(state="normal")
@@ -223,7 +245,7 @@ def run_aider(
         )
         output_widget.configure(state="disabled")
         status_var.set("Failed to make commit due to missing 'aider'")
-        record_request(request_id, None, failure_reason="aider not found")
+        record_request(request_id, None, failure_reason="aider not found", cost=request_cost)
         request_active = False
     finally:
         # Re-enable the input box so the user can type a follow-up or new request.
