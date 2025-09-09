@@ -16,5 +16,10 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 - Output from previous requests remains visible so the full conversation can be reviewed.
 - An **API usage** button displays recent spending and remaining credits using the OpenAI billing API.
 
+## Development Best Practices
+
+- Add tests for functionality changes to verify new behavior.
+- Break up and modularize code where possible to reduce merge conflicts.
+
 ## Author
 Ben Arnao
