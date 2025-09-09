@@ -4,6 +4,9 @@ import configparser  # Read/write simple configuration values
 from pathlib import Path  # Locate config file relative to this module
 from typing import Callable
 
+import subprocess  # Launch external commands
+import pty  # Allocate a pseudo-terminal so aider believes it has a real TTY
+
 import requests
 
 # Patterns to filter noisy warnings when no TTY is attached
@@ -102,3 +105,45 @@ def extract_commit_id(text: str) -> str | None:
     """Return the first commit hash found in the text or None."""
     match = COMMIT_RE.search(text)
     return match.group(1) if match else None
+
+
+def spawn_pty_process(cmd: list[str], cwd: str | None = None):
+    """Start ``cmd`` attached to a pseudo-terminal and return (proc, fd).
+
+    The returned ``fd`` is a readable text-mode file object that streams the
+    subprocess's combined stdout/stderr.  A pseudo-terminal is used so the
+    child process thinks it is connected to a real console, preventing TTY
+    warnings from tools like ``aider``.
+
+    Parameters
+    ----------
+    cmd:
+        Command and arguments to execute.
+    cwd:
+        Optional working directory for the subprocess.
+
+    Raises
+    ------
+    RuntimeError
+        If the current platform does not support pseudo-terminals.
+    """
+    if os.name == "nt":
+        # Windows lacks native pty support; surface the limitation loudly so
+        # callers know they need another strategy.
+        raise RuntimeError("Pseudo-terminal support is required but unavailable on Windows")
+
+    # Create a master/slave pair. The slave end is handed to the subprocess and
+    # the master end is wrapped in a text-mode file object for the caller to read.
+    master_fd, slave_fd = pty.openpty()
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdin=slave_fd,
+        stdout=slave_fd,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        close_fds=True,
+    )
+    os.close(slave_fd)
+    return proc, os.fdopen(master_fd)

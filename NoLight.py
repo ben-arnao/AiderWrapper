@@ -1,5 +1,4 @@
 import threading
-import subprocess
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog
 import os
@@ -16,6 +15,7 @@ from utils import (
     extract_commit_id,
     load_project_dir,
     save_project_dir,
+    spawn_pty_process,
 )
 
 # Map human-friendly names to actual model identifiers
@@ -37,7 +37,6 @@ def run_aider(
     output_widget: scrolledtext.ScrolledText,
     send_btn: ttk.Button,
     txt_input: tk.Text,
-    use_external_console: bool,
     project_dir: str,
     model: str,
     timeout_minutes: int,
@@ -56,37 +55,17 @@ def run_aider(
         output_widget.see(tk.END)
         output_widget.configure(state="disabled")
 
-        if use_external_console:
-            # In an external console we can't read aider's output, so commit
-            # detection is impossible. Inform the user and return early.
-            subprocess.Popen(
-                ["cmd.exe", "/c"] + cmd_args,
-                cwd=project_dir,
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
-            )
-            output_widget.configure(state="normal")
-            output_widget.insert(tk.END, "[opened in external console]\n")
-            output_widget.insert(tk.END, "[error] Cannot determine commit id in external console mode.\n")
-            output_widget.insert(tk.END, "-" * 60 + "\n")
-            output_widget.configure(state="disabled")
-            return
-
-        # Stream output back into the widget (no TTY; filter noisy warnings)
-        proc = subprocess.Popen(
-            cmd_args,
-            cwd=project_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
+        # Launch aider attached to a pseudo-terminal so it behaves as if a real
+        # console is present.  The returned file descriptor lets us stream lines
+        # back into the UI while also avoiding TTY warnings.
+        proc, fd = spawn_pty_process(cmd_args, cwd=project_dir)
 
         start_time = time.time()
         commit_id: str | None = None
         failure_reason: str | None = None
 
         # Read line-by-line so the UI stays responsive
-        for line in proc.stdout:
+        for line in fd:
             if should_suppress(line):
                 continue
             output_widget.configure(state="normal")
@@ -105,6 +84,7 @@ def run_aider(
                 proc.kill()
                 break
 
+        fd.close()
         proc.wait()
 
         if commit_id:
@@ -159,7 +139,6 @@ def on_send(event=None):
             output,
             send_btn,
             txt_input,
-            ext_console_var.get(),
             project_dir_var.get(),
             model,
             timeout_var.get(),  # Minutes to wait for commit id
@@ -296,15 +275,7 @@ txt_input.bind("<Return>", on_return)
 txt_input.bind("<Shift-Return>", on_shift_return)
 txt_input.focus_set()
 
-# Options row
-ext_console_var = tk.BooleanVar(value=False)
-ext_chk = ttk.Checkbutton(
-    main,
-    text="Use external console (avoid TTY warnings)",
-    variable=ext_console_var,
-)
-ext_chk.grid(row=5, column=0, sticky="w", pady=(0, 6))
-
+# Send button placed on the right side of the row for easy access
 send_btn = ttk.Button(main, text="Send (Enter)", command=on_send)
 send_btn.grid(row=5, column=3, sticky="e", pady=(0, 6))
 
