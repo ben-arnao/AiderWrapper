@@ -20,7 +20,8 @@ def test_model_selection_left_justified_and_spacing():
     model_label = widgets["model_label"]
     model_combo = widgets["model_combo"]
     prompt_label = widgets["prompt_label"]
-    ask_check = widgets["ask_mode_check"]
+    # Ask-only toggle was removed, so it should not appear in the widget map.
+    assert "ask_mode_check" not in widgets
 
     # Model label and dropdown should occupy the first two columns
     assert model_label.grid_info()["column"] == 0
@@ -30,9 +31,5 @@ def test_model_selection_left_justified_and_spacing():
 
     # Prompt label should be two rows below the model selector (blank row added)
     assert prompt_label.grid_info()["row"] - model_combo.grid_info()["row"] == 2
-
-    # The ask-only toggle should share the model's row but sit to the right.
-    assert ask_check.grid_info()["row"] == model_combo.grid_info()["row"]
-    assert ask_check.grid_info()["column"] > model_combo.grid_info()["column"]
 
     root.destroy()

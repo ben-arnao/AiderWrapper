@@ -104,7 +104,6 @@ def run_aider(
     status_var: tk.StringVar,
     status_label: ttk.Label,
     request_id: str,
-    ask_mode: bool = False,
     session_cost_var: Optional[tk.StringVar] = None,
 ) -> None:
     """Spawn the aider CLI and capture commit details.
@@ -123,10 +122,6 @@ def run_aider(
     try:
         # Automatically answer "yes" to any prompts so the UI never hangs.
         cmd_args = ["aider", "--yes-always", "--model", model, "--message", msg]
-        if ask_mode:
-            # ``--read-only`` prevents aider from modifying files so it simply
-            # answers questions about the repository.
-            cmd_args.append("--read-only")
 
         # Shorten the request id for compact status messages
         short_id = request_id[:8]
@@ -243,18 +238,9 @@ def run_aider(
             # No commit hash yet because aider needs more input. Leave the
             # request active so the next message is treated as part of it.
             pass
-        elif proc.returncode == 0 and ask_mode:
-            # In ask mode, absence of a commit is expected. Record the request
-            # as successful and keep the conversation in the output area.
-            record_request(request_id, None, cost=request_cost)
-            update_status(
-                status_var,
-                status_label,
-                f"Request {short_id}: answered", 
-                "green",
-            )
-            request_active = False
         else:
+            # Aider exited without creating a commit, so treat the request
+            # as a failure and surface the reason to the user.
             if failure_reason is None:
                 # Include exit code and last line so the user knows what happened
                 code = proc.returncode
