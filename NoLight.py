@@ -1,7 +1,7 @@
 import threading
 import subprocess
 import tkinter as tk
-from tkinter import ttk, scrolledtext, filedialog
+from tkinter import ttk, filedialog
 import os
 import time  # Track elapsed time when waiting for commit id
 import uuid  # Generate a unique id for each request
@@ -38,12 +38,13 @@ request_active = False  # True while we're waiting on aider to finish
 
 def run_aider(
     msg: str,
-    output_widget: scrolledtext.ScrolledText,
+    output_widget: tk.Text,
     txt_input: tk.Text,
     work_dir: str,
     model: str,
     timeout_minutes: int,
     status_var: tk.StringVar,
+    status_label: ttk.Label,
     request_id: str,
 ):
     """Spawn the aider CLI and capture commit details.
@@ -64,6 +65,8 @@ def run_aider(
         status_var.set(
             f"Waiting on aider's response... {timeout_minutes * 60} seconds to timeout"
         )
+        # Neutral color while we wait on aider
+        status_label.config(foreground="black")
 
         output_widget.configure(state="normal")
         output_widget.insert(
@@ -124,6 +127,8 @@ def run_aider(
             if needs_user_input(line):
                 waiting_on_user = True
                 status_var.set("Aider is waiting on our input")
+                # Orange text indicates we're waiting for more details
+                status_label.config(foreground="orange")
                 proc.kill()
                 break
 
@@ -135,6 +140,7 @@ def run_aider(
             ):
                 failure_reason = "Timed out waiting for commit id"
                 status_var.set("Failed to make commit due to timeout")
+                status_label.config(foreground="red")
                 proc.kill()
                 break
 
@@ -164,6 +170,8 @@ def run_aider(
                 status_var.set(
                     f"Successfully made changes with commit id {commit_id}"
                 )
+                # Green text confirms a successful commit
+                status_label.config(foreground="green")
             except Exception as e:
                 # If stats collection fails, record the error but keep running.
                 request_history.append(
@@ -179,6 +187,7 @@ def run_aider(
                 status_var.set(
                     f"Made commit {commit_id} but failed to gather stats"
                 )
+                status_label.config(foreground="red")
             request_active = False
         elif waiting_on_user:
             # No commit hash yet because aider needs more input. Leave the
@@ -193,6 +202,7 @@ def run_aider(
             output_widget.insert(tk.END, "-" * 60 + "\n")
             output_widget.configure(state="disabled")
             status_var.set(f"Failed to make commit due to {failure_reason}")
+            status_label.config(foreground="red")
             request_history.append(
                 {
                     "request_id": request_id,
@@ -212,6 +222,7 @@ def run_aider(
         )
         output_widget.configure(state="disabled")
         status_var.set("Failed to make commit due to missing 'aider'")
+        status_label.config(foreground="red")
         request_history.append(
             {
                 "request_id": request_id,
@@ -260,6 +271,7 @@ def on_send(event=None):
             model,
             timeout_var.get(),  # Minutes to wait for commit id
             status_var,
+            status_label,  # Used to color-code status messages
             req_id,
         ),
         daemon=True,
@@ -366,10 +378,23 @@ model_combo.grid(row=2, column=3, sticky="w", pady=(4, 0))
 lbl = ttk.Label(main, text="What can I do for you today?")
 lbl.grid(row=3, column=0, sticky="w", pady=(4, 0))
 
-# Multiline input (Shift+Enter for newline; Enter to send)
-txt_input = scrolledtext.ScrolledText(main, width=100, height=6, wrap="word")
-txt_input.grid(row=4, column=0, columnspan=4, sticky="nsew", pady=(4, 0))
-main.rowconfigure(4, weight=0)
+# Paned window lets the user drag to resize input vs. output areas
+paned = ttk.PanedWindow(main, orient="vertical")
+paned.grid(row=4, column=0, columnspan=4, sticky="nsew", pady=(4, 0))
+main.rowconfigure(4, weight=1)
+
+# --- Input area -----------------------------------------------------------
+input_frame = ttk.Frame(paned)
+# Text box for entering prompts
+txt_input = tk.Text(input_frame, wrap="word")
+# Vertical scrollbar attached to the text box
+input_scroll = ttk.Scrollbar(input_frame, orient="vertical", command=txt_input.yview)
+txt_input.configure(yscrollcommand=input_scroll.set)
+txt_input.grid(row=0, column=0, sticky="nsew")
+input_scroll.grid(row=0, column=1, sticky="ns")
+input_frame.rowconfigure(0, weight=1)
+input_frame.columnconfigure(0, weight=1)
+paned.add(input_frame, weight=1)
 
 
 def on_return(event):
@@ -385,22 +410,28 @@ txt_input.bind("<Return>", on_return)
 txt_input.bind("<Shift-Return>", on_shift_return)
 txt_input.focus_set()
 
+# --- Response area --------------------------------------------------------
+response_frame = ttk.Frame(paned)
+
 # Status bar communicates whether we're waiting on aider or user input
 status_var = tk.StringVar(value="Aider is waiting on our input")
 # Frame with a border so the status bar looks visually distinct and "boxed".
-status_frame = ttk.Frame(main, borderwidth=1, relief="solid")
-status_frame.grid(row=5, column=0, columnspan=4, sticky="ew", pady=0)
+status_frame = ttk.Frame(response_frame, borderwidth=1, relief="solid")
+status_frame.grid(row=0, column=0, sticky="ew")
 status_label = ttk.Label(status_frame, textvariable=status_var)
 # Expand label to fill the frame horizontally.
 status_label.pack(fill="x", padx=2, pady=2)
 
-# Output area where aider output is streamed
-output = scrolledtext.ScrolledText(
-    main, width=100, height=24, wrap="word", state="disabled"
-)
-# Attach the output area directly below the status frame with no spacing.
-output.grid(row=6, column=0, columnspan=4, sticky="nsew", pady=(0, 0))
-main.rowconfigure(6, weight=1)
+# Text widget showing aider output
+output = tk.Text(response_frame, wrap="word", state="disabled")
+output_scroll = ttk.Scrollbar(response_frame, orient="vertical", command=output.yview)
+output.configure(yscrollcommand=output_scroll.set)
+output.grid(row=1, column=0, sticky="nsew")
+output_scroll.grid(row=1, column=1, sticky="ns")
+response_frame.rowconfigure(1, weight=1)
+response_frame.columnconfigure(0, weight=1)
+
+paned.add(response_frame, weight=3)
 
 
 def show_history():
@@ -437,7 +468,7 @@ def show_history():
 
 # Simple button to pop up the history table
 history_btn = ttk.Button(main, text="History", command=show_history)
-history_btn.grid(row=7, column=0, sticky="w", pady=(6, 0))
+history_btn.grid(row=5, column=0, sticky="w", pady=(6, 0))
 
 
 def open_env_settings(event=None):
