@@ -15,6 +15,12 @@ NO_TTY_PATTERNS = [
 # Compile regexes once at module import for efficiency
 NO_TTY_REGEXES = [re.compile(pat) for pat in NO_TTY_PATTERNS]
 
+# Regexes used to detect when aider is asking for additional input from the user.
+# We look for lines that begin with "Please" and end with a question mark as a
+# simple heuristic for interactive prompts.
+USER_INPUT_PATTERNS = [r"^Please .+\?$"]
+USER_INPUT_REGEXES = [re.compile(pat, re.IGNORECASE) for pat in USER_INPUT_PATTERNS]
+
 # Path to the shared config file sitting next to this module
 CONFIG_PATH = Path(__file__).with_name("config.ini")
 
@@ -136,3 +142,15 @@ def extract_commit_id(text: str) -> Optional[str]:
     """Return the first commit hash found in the text or None."""
     match = COMMIT_RE.search(text)
     return match.group(1) if match else None
+
+
+def needs_user_input(line: str) -> bool:
+    """Return True if the line indicates aider expects more information.
+
+    The check is intentionally lightweight. If the line starts with the word
+    "Please" and ends with a question mark, we assume aider is prompting the
+    user for additional input and the UI should stop waiting for a commit id.
+    """
+
+    stripped = line.strip()
+    return any(rx.match(stripped) for rx in USER_INPUT_REGEXES)

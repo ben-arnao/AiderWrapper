@@ -65,6 +65,18 @@ def test_extract_commit_id_missing():
     assert utils.extract_commit_id(text) is None
 
 
+def test_needs_user_input_detects_prompt():
+    """Lines that start with 'Please' and end with '?' require user action."""
+    line = "Please add README.md to the chat so I can generate the exact SEARCH/REPLACE blocks?"
+    assert utils.needs_user_input(line)
+
+
+def test_needs_user_input_ignores_regular_output():
+    """Normal output lines should not be flagged as requiring input."""
+    line = "Aider v0.86.1"
+    assert not utils.needs_user_input(line)
+
+
 def test_load_and_save_timeout(tmp_path: Path):
     """Saving then loading should persist the timeout value."""
     cfg = tmp_path / "config.ini"

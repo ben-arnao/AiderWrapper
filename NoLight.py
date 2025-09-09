@@ -12,6 +12,7 @@ from utils import (
     load_timeout,
     save_timeout,
     extract_commit_id,
+    needs_user_input,
     load_working_dir,
     save_working_dir,
     load_default_model,
@@ -39,12 +40,19 @@ def run_aider(
     model: str,
     timeout_minutes: int,
     commit_frame: ttk.Frame,
+    status_var: tk.StringVar,
 ):
     """Spawn the aider CLI and record the commit hash it produces."""
 
     try:
         # Automatically answer "yes" to any prompts so the UI never hangs
         cmd_args = ["aider", "--yes-always", "--model", model, "--message", msg]
+
+        # Indicate that we're waiting on aider to respond and start a simple
+        # countdown so the user knows when a timeout will occur.
+        status_var.set(
+            f"Waiting on aider's response... {timeout_minutes * 60} seconds to timeout"
+        )
 
         output_widget.configure(state="normal")
         output_widget.insert(
@@ -62,11 +70,30 @@ def run_aider(
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            encoding="utf-8",  # Avoid garbled characters on Windows
+            errors="replace",  # Replace any undecodable bytes with '?' to keep output readable
         )
 
         start_time = time.time()
         commit_id: str | None = None
         failure_reason: str | None = None
+        waiting_on_user = False  # Set when aider asks for more information
+
+        def update_countdown():
+            """Refresh the status bar every second with remaining time."""
+
+            elapsed = time.time() - start_time
+            remaining = int(timeout_minutes * 60 - elapsed)
+            # Stop updating once we have a result or are waiting on the user
+            if commit_id or failure_reason or waiting_on_user or remaining < 0:
+                return
+            status_var.set(
+                f"Waiting on aider's response... {remaining} seconds to timeout"
+            )
+            root.after(1000, update_countdown)
+
+        # Kick off the countdown updates
+        root.after(1000, update_countdown)
 
         # Read line-by-line so the UI stays responsive
         for line in proc.stdout:
@@ -82,9 +109,22 @@ def run_aider(
             if cid:
                 commit_id = cid
 
+            # If aider is asking for more information, stop the process and let
+            # the user reply instead of timing out.
+            if needs_user_input(line):
+                waiting_on_user = True
+                status_var.set("Aider is waiting on our input")
+                proc.kill()
+                break
+
             # Stop waiting if timeout elapsed without a commit id
-            if commit_id is None and time.time() - start_time > timeout_minutes * 60:
+            if (
+                commit_id is None
+                and not waiting_on_user
+                and time.time() - start_time > timeout_minutes * 60
+            ):
                 failure_reason = "Timed out waiting for commit id"
+                status_var.set("Failed to make commit due to timeout")
                 proc.kill()
                 break
 
@@ -99,6 +139,11 @@ def run_aider(
             # Record commit hash in the history box
             lbl = ttk.Label(commit_frame, text=f"Commit: {commit_id}")
             lbl.pack(anchor="w")
+            status_var.set(f"Successfully made changes with commit id {commit_id}")
+        elif waiting_on_user:
+            # No commit hash yet because aider needs more input. We already
+            # updated the status, so just exit without marking an error.
+            pass
         else:
             if failure_reason is None:
                 failure_reason = "No commit id found"
@@ -107,6 +152,7 @@ def run_aider(
             output_widget.insert(tk.END, f"[exit code: {proc.returncode}]\n")
             output_widget.insert(tk.END, "-" * 60 + "\n")
             output_widget.configure(state="disabled")
+            status_var.set(f"Failed to make commit due to {failure_reason}")
     except FileNotFoundError:
         output_widget.configure(state="normal")
         output_widget.insert(
@@ -114,6 +160,7 @@ def run_aider(
             "\n[error] Could not find 'aider'. Make sure it's installed and on your PATH.\n",
         )
         output_widget.configure(state="disabled")
+        status_var.set("Failed to make commit due to missing 'aider'")
     finally:
         send_btn.config(state="normal")
         txt_input.config(state="normal")
@@ -146,6 +193,7 @@ def on_send(event=None):
             model,
             timeout_var.get(),  # Minutes to wait for commit id
             commit_frame,
+            status_var,
         ),
         daemon=True,
     )
@@ -174,9 +222,9 @@ def on_timeout_change(*args):
 
 timeout_var.trace_add("write", on_timeout_change)
 
-# Allow column 0 to stretch while others remain fixed
+# Make the second column expandable so labels sit directly next to buttons
 for col in range(4):
-    main.columnconfigure(col, weight=1 if col == 0 else 0)
+    main.columnconfigure(col, weight=1 if col == 1 else 0)
 
 # API key status label
 api_status_label = ttk.Label(main, text="API key: checking...", foreground="orange")
@@ -280,7 +328,12 @@ txt_input.bind("<Return>", on_return)
 txt_input.bind("<Shift-Return>", on_shift_return)
 txt_input.focus_set()
 
-# Options row
+# Status bar communicates whether we're waiting on aider or user input
+status_var = tk.StringVar(value="Aider is waiting on our input")
+status_label = ttk.Label(main, textvariable=status_var)
+status_label.grid(row=5, column=0, columnspan=3, sticky="w", pady=(0, 6))
+
+# Options row with send button on the right
 send_btn = ttk.Button(main, text="Send (Enter)", command=on_send)
 send_btn.grid(row=5, column=3, sticky="e", pady=(0, 6))
 
