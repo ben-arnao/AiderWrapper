@@ -1,6 +1,7 @@
 import sys
 import types
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -109,3 +110,55 @@ def test_load_and_save_default_model(tmp_path: Path):
     utils.save_timeout(7, cfg)
     assert utils.load_default_model(cfg) == "gpt-5"
     assert utils.load_timeout(cfg) == 7
+
+
+def test_get_commit_stats(tmp_path: Path):
+    """Commit stats should report line and file counts accurately."""
+
+    repo = tmp_path
+    # Initialize an empty git repository to run our test commits.
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+
+    file_path = repo / "demo.txt"
+    # First commit adds a file with two lines.
+    file_path.write_text("a\nb\n")
+    subprocess.run(["git", "add", file_path.name], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "add file"], cwd=repo, check=True)
+    commit1 = (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+        ).stdout.strip()
+    )
+
+    # Second commit modifies one line.
+    file_path.write_text("a\nc\n")
+    subprocess.run(["git", "add", file_path.name], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "modify file"], cwd=repo, check=True)
+    commit2 = (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+        ).stdout.strip()
+    )
+
+    # Third commit removes the file entirely.
+    subprocess.run(["git", "rm", file_path.name], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "remove file"], cwd=repo, check=True)
+    commit3 = (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+        ).stdout.strip()
+    )
+
+    stats1 = utils.get_commit_stats(commit1, repo)
+    assert stats1["lines_added"] == 2
+    assert stats1["files_added"] == 1
+
+    stats2 = utils.get_commit_stats(commit2, repo)
+    assert stats2["lines_added"] == 1
+    assert stats2["lines_removed"] == 1
+    assert stats2["files_changed"] == 1
+    assert stats2["description"] == "modify file"
+
+    stats3 = utils.get_commit_stats(commit3, repo)
+    assert stats3["files_removed"] == 1
+    assert stats3["lines_removed"] == 2

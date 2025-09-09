@@ -4,6 +4,7 @@ import configparser  # Read/write simple configuration values
 from pathlib import Path  # Locate config file relative to this module
 from typing import Callable, Optional
 
+import subprocess  # Run git commands to gather commit statistics
 import requests
 
 # Patterns to filter noisy warnings when no TTY is attached
@@ -154,3 +155,85 @@ def needs_user_input(line: str) -> bool:
 
     stripped = line.strip()
     return any(rx.match(stripped) for rx in USER_INPUT_REGEXES)
+
+
+def get_commit_stats(commit_id: str, repo_path: str) -> dict:
+    """Return line and file change counts for a given commit.
+
+    Parameters
+    ----------
+    commit_id:
+        The hash of the commit to inspect.
+    repo_path:
+        Path to the git repository containing the commit.
+
+    Returns
+    -------
+    dict
+        Mapping with line counts (added/removed/changed), file counts
+        (added/removed/changed), and a short description of the commit.
+
+    Raises
+    ------
+    RuntimeError
+        If any git command fails. Callers are expected to handle this so the
+        UI can surface a helpful message rather than silently continuing.
+    """
+
+    # Gather insertion/deletion counts for the commit using --shortstat.
+    shortstat_cmd = ["git", "show", "--shortstat", commit_id]
+    shortstat = subprocess.run(
+        shortstat_cmd, cwd=repo_path, capture_output=True, text=True, check=True
+    ).stdout
+
+    # Initialize counters for lines and files.
+    lines_added = lines_removed = 0
+    files_changed = files_added = files_removed = 0
+
+    # The shortstat output ends with a summary line like:
+    # "1 file changed, 2 insertions(+), 1 deletion(-)"
+    for line in shortstat.splitlines():
+        if "file" in line and "changed" in line:
+            m = re.search(r"(\d+) insertions?", line)
+            lines_added = int(m.group(1)) if m else 0
+            m = re.search(r"(\d+) deletions?", line)
+            lines_removed = int(m.group(1)) if m else 0
+
+    # Determine how many files were added, deleted, or modified.
+    diff_cmd = [
+        "git",
+        "diff-tree",
+        "--no-commit-id",
+        "--name-status",
+        "--root",  # Include changes from the initial commit
+        "-r",
+        commit_id,
+    ]
+    diff_out = subprocess.run(
+        diff_cmd, cwd=repo_path, capture_output=True, text=True, check=True
+    ).stdout
+
+    for line in diff_out.splitlines():
+        status, _path = line.split("\t", 1)
+        if status == "A":
+            files_added += 1
+        elif status == "D":
+            files_removed += 1
+        else:  # Treat anything else (M/R/C) as a modified file
+            files_changed += 1
+
+    # The commit title serves as a short description for the history table.
+    msg_cmd = ["git", "log", "-1", "--format=%s", commit_id]
+    description = subprocess.run(
+        msg_cmd, cwd=repo_path, capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+    return {
+        "lines_added": lines_added,
+        "lines_removed": lines_removed,
+        "lines_changed": lines_added + lines_removed,
+        "files_added": files_added,
+        "files_removed": files_removed,
+        "files_changed": files_changed,
+        "description": description,
+    }

@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog
 import os
 import time  # Track elapsed time when waiting for commit id
+import uuid  # Generate a unique id for each request
 
 from utils import (
     sanitize,
@@ -17,6 +18,7 @@ from utils import (
     save_working_dir,
     load_default_model,
     save_default_model,
+    get_commit_stats,  # Compute line/file counts for commits
 )
 
 # Map human-friendly names to actual model identifiers
@@ -30,39 +32,49 @@ MODEL_OPTIONS = {
 DEFAULT_MODEL = load_default_model()
 DEFAULT_CHOICE = next((k for k, v in MODEL_OPTIONS.items() if v == DEFAULT_MODEL), "Medium")
 
+# Track details for each user request so they can be shown in a history table.
+request_history: list[dict] = []  # List of per-request summaries
+current_request_id: str | None = None  # UUID for the active request
+request_active = False  # True while we're waiting on aider to finish
+
 
 def run_aider(
     msg: str,
     output_widget: scrolledtext.ScrolledText,
-    send_btn: ttk.Button,
     txt_input: tk.Text,
     work_dir: str,
     model: str,
     timeout_minutes: int,
-    commit_frame: ttk.Frame,
     status_var: tk.StringVar,
+    request_id: str,
 ):
-    """Spawn the aider CLI and record the commit hash it produces."""
+    """Spawn the aider CLI and capture commit details.
+
+    All output from aider is streamed into ``output_widget``. When a commit id
+    is detected or a failure occurs, a summary of the request is appended to
+    ``request_history`` so the user can review past actions.
+    """
+
+    global request_active
 
     try:
-        # Automatically answer "yes" to any prompts so the UI never hangs
+        # Automatically answer "yes" to any prompts so the UI never hangs.
         cmd_args = ["aider", "--yes-always", "--model", model, "--message", msg]
 
-        # Indicate that we're waiting on aider to respond and start a simple
-        # countdown so the user knows when a timeout will occur.
+        # Let the user know we're waiting on aider and start a simple countdown
+        # so they can see when a timeout will occur.
         status_var.set(
             f"Waiting on aider's response... {timeout_minutes * 60} seconds to timeout"
         )
 
         output_widget.configure(state="normal")
         output_widget.insert(
-            tk.END,
-            f"\n> aider --model {model} --message \"{msg}\"\n\n",
+            tk.END, f"\n> aider --model {model} --message \"{msg}\"\n\n"
         )
         output_widget.see(tk.END)
         output_widget.configure(state="disabled")
 
-        # Stream output back into the widget (no TTY; filter noisy warnings)
+        # Stream output back into the widget (no TTY; filter noisy warnings).
         proc = subprocess.Popen(
             cmd_args,
             cwd=work_dir,
@@ -70,8 +82,8 @@ def run_aider(
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
-            encoding="utf-8",  # Avoid garbled characters on Windows
-            errors="replace",  # Replace any undecodable bytes with '?' to keep output readable
+            encoding="utf-8",
+            errors="replace",
         )
 
         start_time = time.time()
@@ -79,12 +91,12 @@ def run_aider(
         failure_reason: str | None = None
         waiting_on_user = False  # Set when aider asks for more information
 
-        def update_countdown():
+        def update_countdown() -> None:
             """Refresh the status bar every second with remaining time."""
 
             elapsed = time.time() - start_time
             remaining = int(timeout_minutes * 60 - elapsed)
-            # Stop updating once we have a result or are waiting on the user
+            # Stop updating once we have a result or are waiting on the user.
             if commit_id or failure_reason or waiting_on_user or remaining < 0:
                 return
             status_var.set(
@@ -92,10 +104,10 @@ def run_aider(
             )
             root.after(1000, update_countdown)
 
-        # Kick off the countdown updates
+        # Kick off the countdown updates.
         root.after(1000, update_countdown)
 
-        # Read line-by-line so the UI stays responsive
+        # Read line-by-line so the UI stays responsive.
         for line in proc.stdout:
             if should_suppress(line):
                 continue
@@ -104,7 +116,7 @@ def run_aider(
             output_widget.see(tk.END)
             output_widget.configure(state="disabled")
 
-            # Try to extract a commit hash from the stream
+            # Try to extract a commit hash from the stream.
             cid = extract_commit_id(line)
             if cid:
                 commit_id = cid
@@ -117,7 +129,7 @@ def run_aider(
                 proc.kill()
                 break
 
-            # Stop waiting if timeout elapsed without a commit id
+            # Stop waiting if timeout elapsed without a commit id.
             if (
                 commit_id is None
                 and not waiting_on_user
@@ -131,18 +143,49 @@ def run_aider(
         proc.wait()
 
         if commit_id:
-            # Clear previous console output for readability
-            output_widget.configure(state="normal")
-            output_widget.delete("1.0", tk.END)
-            output_widget.configure(state="disabled")
-
-            # Record commit hash in the history box
-            lbl = ttk.Label(commit_frame, text=f"Commit: {commit_id}")
-            lbl.pack(anchor="w")
-            status_var.set(f"Successfully made changes with commit id {commit_id}")
+            try:
+                # Query git for stats about the commit so we can store them.
+                stats = get_commit_stats(commit_id, work_dir)
+                request_history.append(
+                    {
+                        "request_id": request_id,
+                        "commit_id": commit_id,
+                        "lines": {
+                            "changed": stats["lines_changed"],
+                            "added": stats["lines_added"],
+                            "removed": stats["lines_removed"],
+                        },
+                        "files": {
+                            "changed": stats["files_changed"],
+                            "added": stats["files_added"],
+                            "removed": stats["files_removed"],
+                        },
+                        "failure_reason": None,
+                        "description": stats["description"],
+                    }
+                )
+                status_var.set(
+                    f"Successfully made changes with commit id {commit_id}"
+                )
+            except Exception as e:
+                # If stats collection fails, record the error but keep running.
+                request_history.append(
+                    {
+                        "request_id": request_id,
+                        "commit_id": commit_id,
+                        "lines": {"changed": 0, "added": 0, "removed": 0},
+                        "files": {"changed": 0, "added": 0, "removed": 0},
+                        "failure_reason": f"stats error: {e}",
+                        "description": "",
+                    }
+                )
+                status_var.set(
+                    f"Made commit {commit_id} but failed to gather stats"
+                )
+            request_active = False
         elif waiting_on_user:
-            # No commit hash yet because aider needs more input. We already
-            # updated the status, so just exit without marking an error.
+            # No commit hash yet because aider needs more input. Leave the
+            # request active so the next message is treated as part of it.
             pass
         else:
             if failure_reason is None:
@@ -153,6 +196,17 @@ def run_aider(
             output_widget.insert(tk.END, "-" * 60 + "\n")
             output_widget.configure(state="disabled")
             status_var.set(f"Failed to make commit due to {failure_reason}")
+            request_history.append(
+                {
+                    "request_id": request_id,
+                    "commit_id": None,
+                    "lines": {"changed": 0, "added": 0, "removed": 0},
+                    "files": {"changed": 0, "added": 0, "removed": 0},
+                    "failure_reason": failure_reason,
+                    "description": "",
+                }
+            )
+            request_active = False
     except FileNotFoundError:
         output_widget.configure(state="normal")
         output_widget.insert(
@@ -161,13 +215,26 @@ def run_aider(
         )
         output_widget.configure(state="disabled")
         status_var.set("Failed to make commit due to missing 'aider'")
+        request_history.append(
+            {
+                "request_id": request_id,
+                "commit_id": None,
+                "lines": {"changed": 0, "added": 0, "removed": 0},
+                "files": {"changed": 0, "added": 0, "removed": 0},
+                "failure_reason": "aider not found",
+                "description": "",
+            }
+        )
+        request_active = False
     finally:
-        send_btn.config(state="normal")
+        # Re-enable the input box so the user can type a follow-up or new request.
         txt_input.config(state="normal")
         txt_input.focus_set()
 
 
 def on_send(event=None):
+    """Handle the Enter key by sending the message to aider."""
+    global request_active, current_request_id
     raw = txt_input.get("1.0", tk.END)
     if not raw.strip():
         return
@@ -177,9 +244,13 @@ def on_send(event=None):
         output.configure(state="disabled")
         return
     msg = sanitize(raw)
-
-    send_btn.config(state="disabled")
+    # Disable input until aider responds so duplicate requests can't be sent.
     txt_input.config(state="disabled")
+    # Generate a new request id only if we're starting a fresh request.
+    if not request_active:
+        current_request_id = str(uuid.uuid4())
+        request_active = True
+    req_id = current_request_id
 
     model = MODEL_OPTIONS[model_var.get()]
     t = threading.Thread(
@@ -187,19 +258,16 @@ def on_send(event=None):
         args=(
             msg,
             output,
-            send_btn,
             txt_input,
             work_dir_var.get(),
             model,
             timeout_var.get(),  # Minutes to wait for commit id
-            commit_frame,
             status_var,
+            req_id,
         ),
         daemon=True,
     )
     t.start()
-
-    txt_input.config(state="normal")
     txt_input.delete("1.0", tk.END)
 
 
@@ -331,11 +399,7 @@ txt_input.focus_set()
 # Status bar communicates whether we're waiting on aider or user input
 status_var = tk.StringVar(value="Aider is waiting on our input")
 status_label = ttk.Label(main, textvariable=status_var)
-status_label.grid(row=5, column=0, columnspan=3, sticky="w", pady=(0, 6))
-
-# Options row with send button on the right
-send_btn = ttk.Button(main, text="Send (Enter)", command=on_send)
-send_btn.grid(row=5, column=3, sticky="e", pady=(0, 6))
+status_label.grid(row=5, column=0, columnspan=4, sticky="w", pady=(0, 6))
 
 # Output area where aider output is streamed
 output = scrolledtext.ScrolledText(
@@ -344,9 +408,49 @@ output = scrolledtext.ScrolledText(
 output.grid(row=6, column=0, columnspan=4, sticky="nsew")
 main.rowconfigure(6, weight=1)
 
-# Box that collects commit ids for each request
-commit_frame = ttk.LabelFrame(main, text="Commit History")
-commit_frame.grid(row=7, column=0, columnspan=4, sticky="ew", pady=(6, 0))
+
+def show_history():
+    """Open a window displaying a table of previous requests."""
+    win = tk.Toplevel(root)
+    win.title("History")
+    cols = (
+        "request_id",
+        "commit_id",
+        "lines_changed",
+        "lines_added",
+        "lines_removed",
+        "files_changed",
+        "files_added",
+        "files_removed",
+        "failure_reason",
+        "description",
+    )
+    tree = ttk.Treeview(win, columns=cols, show="headings")
+    for col in cols:
+        tree.heading(col, text=col.replace("_", " ").title())
+    for rec in request_history:
+        tree.insert(
+            "",
+            tk.END,
+            values=(
+                rec.get("request_id"),
+                rec.get("commit_id", ""),
+                rec["lines"]["changed"],
+                rec["lines"]["added"],
+                rec["lines"]["removed"],
+                rec["files"]["changed"],
+                rec["files"]["added"],
+                rec["files"]["removed"],
+                rec.get("failure_reason", ""),
+                rec.get("description", ""),
+            ),
+        )
+    tree.pack(fill="both", expand=True)
+
+
+# Simple button to pop up the history table
+history_btn = ttk.Button(main, text="History", command=show_history)
+history_btn.grid(row=7, column=0, sticky="w", pady=(6, 0))
 
 
 def open_env_settings(event=None):
@@ -366,7 +470,7 @@ def check_api_key():
             cursor="hand2",
         )
         api_status_label.bind("<Button-1>", open_env_settings)
-        send_btn.config(state="disabled")
+        txt_input.config(state="disabled")
         return
 
     try:
@@ -377,14 +481,14 @@ def check_api_key():
             cursor="",
         )
         api_status_label.unbind("<Button-1>")
-        send_btn.config(state="normal")
+        txt_input.config(state="normal")
     except Exception as e:
         # Show the failure reason from verify_api_key so the user can fix it
         api_status_label.config(
             text=f"API key: ✗ ({e})", foreground="red", cursor=""
         )
         api_status_label.unbind("<Button-1>")
-        send_btn.config(state="disabled")
+        txt_input.config(state="disabled")
 
 
 root.after(0, check_api_key)
