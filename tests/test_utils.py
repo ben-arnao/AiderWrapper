@@ -173,6 +173,71 @@ def test_get_commit_stats(tmp_path: Path):
     assert stats3["files_removed"] == 1
     assert stats3["lines_removed"] == 2
 
+
+def test_fetch_usage_data_parses_responses():
+    """fetch_usage_data should combine usage and credit info correctly."""
+
+    def fake_request(url, headers=None, params=None):
+        # Simulate different API endpoints based on the URL requested
+        resp = types.SimpleNamespace()
+        resp.status_code = 200
+        if url.endswith("/usage"):
+            # Usage endpoint returns total_usage in cents
+            resp.json = lambda: {"total_usage": 1234}
+        else:
+            # Credit grants endpoint reports totals and remaining credits
+            resp.json = lambda: {
+                "total_granted": 20,
+                "total_used": 5,
+                "total_available": 15,
+            }
+        return resp
+
+    stats = utils.fetch_usage_data("key", days=30, request_fn=fake_request)
+    assert stats["total_spent"] == pytest.approx(12.34)
+    assert stats["credits_total"] == 20
+    assert stats["credits_remaining"] == 15
+    assert stats["pct_credits_used"] == pytest.approx(25.0)
+
+
+def test_fetch_usage_data_error():
+    """Non-200 responses should raise ValueError."""
+
+    def bad_request(url, headers=None, params=None):
+        resp = types.SimpleNamespace()
+        resp.status_code = 500
+        resp.text = "boom"
+        return resp
+
+    with pytest.raises(ValueError):
+        utils.fetch_usage_data("key", request_fn=bad_request)
+
+
+def test_update_status_sets_message_and_color():
+    """update_status should set both the text and the color."""
+
+    class DummyVar:
+        def __init__(self):
+            self.value = ""
+
+        def set(self, value):
+            # Store the last message assigned to the variable
+            self.value = value
+
+    class DummyLabel:
+        def __init__(self):
+            self.fg = ""
+
+        def config(self, **kwargs):
+            # Capture the requested foreground color
+            self.fg = kwargs.get("foreground", self.fg)
+
+    var = DummyVar()
+    lbl = DummyLabel()
+    utils.update_status(var, lbl, "hello", "green")
+    assert var.value == "hello"
+    assert lbl.fg == "green"
+
 def test_build_and_launch_game_runs(monkeypatch, tmp_path):
     """Building then launching should invoke subprocess.run and subprocess.Popen."""
     calls = []  # record the order and arguments of subprocess calls
