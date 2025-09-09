@@ -30,12 +30,12 @@ def test_record_request_success():
 def test_record_request_failure():
     """Failures should record the reason and zero counts."""
     runner.request_history.clear()
-    runner.record_request("id2", None, failure_reason="timeout")
+    runner.record_request("id2", None, failure_reason="error")
     rec = runner.request_history[0]
     assert rec["commit_id"] is None
     assert rec["lines"] == 0
     assert rec["files"] == 0
-    assert rec["failure_reason"] == "timeout"
+    assert rec["failure_reason"] == "error"
 
 
 def test_run_aider_records_exit_reason(monkeypatch):
@@ -63,18 +63,18 @@ def test_run_aider_records_exit_reason(monkeypatch):
             pass
 
     class DummyVar:
+        def __init__(self):
+            self.value = ""
+
         def set(self, _val):
-            pass
+            # Remember the last status message set by the runner
+            self.value = _val
 
     class DummyLabel:
         def config(self, **kwargs):
             pass
 
         def unbind(self, *_args, **_kwargs):
-            pass
-
-    class DummyRoot:
-        def after(self, *_args, **_kwargs):
             pass
 
     # Mock Popen to simulate aider exiting with an error
@@ -96,7 +96,6 @@ def test_run_aider_records_exit_reason(monkeypatch):
     txt_input = DummyText()
     status_var = DummyVar()
     status_label = DummyLabel()
-    root = DummyRoot()
 
     runner.run_aider(
         msg="hi",
@@ -104,15 +103,15 @@ def test_run_aider_records_exit_reason(monkeypatch):
         txt_input=txt_input,
         work_dir=".",
         model="gpt-5",
-        timeout_minutes=1,
         status_var=status_var,
         status_label=status_label,
         request_id="req1",
-        root=root,
     )
 
     rec = runner.request_history[0]
     assert rec["failure_reason"] == "aider exited with code 2: boom"
+    # The status message should mention the request id and failure reason
+    assert status_var.value == "Request req1: failed - aider exited with code 2: boom"
 
 
 class DummyWidget:

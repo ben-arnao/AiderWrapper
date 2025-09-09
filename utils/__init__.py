@@ -11,8 +11,6 @@ from .git import (
     HISTORY_COL_WIDTHS,
 )
 from .config import (
-    load_timeout,
-    save_timeout,
     load_default_model,
     save_default_model,
     load_working_dir,
@@ -31,8 +29,6 @@ __all__ = [
     "get_commit_stats",
     "format_history_row",
     "HISTORY_COL_WIDTHS",
-    "load_timeout",
-    "save_timeout",
     "load_default_model",
     "save_default_model",
     "load_working_dir",
