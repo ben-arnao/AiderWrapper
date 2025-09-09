@@ -14,6 +14,8 @@ from utils import (
     load_timeout,
     save_timeout,
     extract_commit_id,
+    load_project_dir,
+    save_project_dir,
 )
 
 # Map human-friendly names to actual model identifiers
@@ -194,20 +196,48 @@ for col in range(4):
 
 # API key status label
 api_status_label = ttk.Label(main, text="API key: checking...", foreground="orange")
-api_status_label.grid(row=0, column=0, columnspan=4, sticky="w")
+# Span first three columns so a settings button can live in the fourth
+api_status_label.grid(row=0, column=0, columnspan=3, sticky="w")
+
+
+def open_settings():
+    """Pop up a small window to house UI-related settings."""
+    win = tk.Toplevel(root)
+    win.title("Settings")
+
+    ttk.Label(win, text="Timeout (min):").grid(row=0, column=0, padx=8, pady=8, sticky="w")
+    # The spinbox shares the same variable used in the main UI so changes
+    # automatically persist via the trace handler.
+    ttk.Spinbox(win, from_=1, to=60, textvariable=timeout_var, width=5).grid(
+        row=0, column=1, padx=8, pady=8, sticky="w"
+    )
+
+
+# Simple gear icon button that opens the settings window
+settings_btn = ttk.Button(main, text="⚙", width=3, command=open_settings)
+settings_btn.grid(row=0, column=3, sticky="e")
 
 # Project directory selector
 project_dir_var = tk.StringVar(value="")
+# Separate variable used only for displaying the path or an error message
+dir_path_var = tk.StringVar(value="")
+
 
 def choose_dir():
+    """Prompt the user for a directory and validate it as a Unity project."""
     path = filedialog.askdirectory()
     if path:
         if verify_unity_project(path):
             project_dir_var.set(path)
             dir_status_label.config(text="✓", foreground="green")
+            dir_path_var.set(path)
+            save_project_dir(path)
         else:
             project_dir_var.set("")
             dir_status_label.config(text="✗", foreground="red")
+            dir_path_var.set("Not a Unity project")
+            save_project_dir("")
+
 
 dir_btn = ttk.Button(main, text="Select Unity Project", command=choose_dir)
 dir_btn.grid(row=1, column=0, sticky="w", pady=(4, 0))
@@ -215,20 +245,36 @@ dir_btn.grid(row=1, column=0, sticky="w", pady=(4, 0))
 dir_status_label = ttk.Label(main, text="", width=2)
 dir_status_label.grid(row=1, column=1, sticky="w", pady=(4, 0))
 
-# Model selection dropdown
+# Displays the currently selected project directory or an error message
+dir_path_label = ttk.Label(main, textvariable=dir_path_var)
+dir_path_label.grid(row=1, column=2, columnspan=2, sticky="w", pady=(4, 0))
+
+# Load any previously cached project directory
+cached_dir = load_project_dir()
+if cached_dir and verify_unity_project(cached_dir):
+    project_dir_var.set(cached_dir)
+    dir_status_label.config(text="✓", foreground="green")
+    dir_path_var.set(cached_dir)
+else:
+    if cached_dir:
+        dir_path_var.set("Cached path invalid")
+
+# Model selection dropdown (right-aligned for a cleaner look)
 model_var = tk.StringVar(value=DEFAULT_CHOICE)
 model_label = ttk.Label(main, text="Model:")
-model_label.grid(row=2, column=0, sticky="e", pady=(4, 0))
+# Place label near the right edge with a bit of padding to separate from combo
+model_label.grid(row=2, column=2, sticky="e", pady=(4, 0), padx=(0, 8))
 model_combo = ttk.Combobox(
     main,
     textvariable=model_var,
     values=list(MODEL_OPTIONS.keys()),
     state="readonly",
+    width=12,  # Narrower selection box
 )
-model_combo.grid(row=2, column=1, sticky="w", pady=(4, 0))
+model_combo.grid(row=2, column=3, sticky="e", pady=(4, 0))
 
 # Input label
-lbl = ttk.Label(main, text="Message to Aider:")
+lbl = ttk.Label(main, text="What can I do for you today?")
 lbl.grid(row=3, column=0, sticky="w", pady=(4, 0))
 
 # Multiline input (Shift+Enter for newline; Enter to send)
@@ -259,13 +305,6 @@ ext_chk = ttk.Checkbutton(
 )
 ext_chk.grid(row=5, column=0, sticky="w", pady=(0, 6))
 
-# User-adjustable timeout spinbox
-timeout_lbl = ttk.Label(main, text="Timeout (min):")
-timeout_lbl.grid(row=5, column=1, sticky="e")
-
-timeout_spin = ttk.Spinbox(main, from_=1, to=60, textvariable=timeout_var, width=5)
-timeout_spin.grid(row=5, column=2, sticky="w")
-
 send_btn = ttk.Button(main, text="Send (Enter)", command=on_send)
 send_btn.grid(row=5, column=3, sticky="e", pady=(0, 6))
 
@@ -285,8 +324,11 @@ def check_api_key():
     try:
         verify_api_key(os.environ.get("AIDER_OPENAI_API_KEY"))
         api_status_label.config(text="API key: ✓", foreground="green")
-    except Exception:
-        api_status_label.config(text="API key: ✗", foreground="red")
+    except Exception as e:
+        # Show a brief reason so the user knows what went wrong
+        api_status_label.config(
+            text=f"API key: ✗ ({e})", foreground="red"
+        )
         send_btn.config(state="disabled")
 
 

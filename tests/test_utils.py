@@ -61,3 +61,13 @@ def test_load_and_save_timeout(tmp_path: Path):
     # After saving a new value, it should round-trip
     utils.save_timeout(10, cfg)
     assert utils.load_timeout(cfg) == 10
+
+
+def test_load_and_save_project_dir(tmp_path: Path):
+    """The last selected project directory should persist between runs."""
+    cache = tmp_path / "proj.txt"
+    # Without a cache file we expect None
+    assert utils.load_project_dir(cache) is None
+    # After saving a path it should load back the same value
+    utils.save_project_dir("/path/to/project", cache)
+    assert utils.load_project_dir(cache) == "/path/to/project"
