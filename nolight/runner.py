@@ -17,6 +17,8 @@ from utils import (
 request_history: List[dict] = []  # List of per-request summaries
 current_request_id: Optional[str] = None  # UUID for the active request
 request_active = False  # True while we're waiting on aider to finish
+# When set, the next request should clear the output widget before running.
+reset_on_new_request = False
 
 
 def record_request(
@@ -67,6 +69,22 @@ def record_request(
     )
 
 
+def maybe_clear_output(output_widget: tk.Text) -> None:
+    """Erase old output if a previous request succeeded.
+
+    The UI calls this right before starting a new request. If a prior request
+    finished with a commit, we wipe the output widget so two conversations don't
+    run together. Afterwards, the reset flag is cleared.
+    """
+
+    global reset_on_new_request
+    if reset_on_new_request and not request_active:
+        output_widget.configure(state="normal")
+        output_widget.delete("1.0", tk.END)
+        output_widget.configure(state="disabled")
+        reset_on_new_request = False
+
+
 def run_aider(
     msg: str,
     output_widget: tk.Text,
@@ -86,7 +104,7 @@ def run_aider(
     ``request_history`` so the user can review past actions.
     """
 
-    global request_active
+    global request_active, reset_on_new_request
     # Ensure the status bar is reset for each new request by removing any
     # previous click handlers and cursor styling.
     status_label.config(cursor="")
@@ -212,6 +230,8 @@ def run_aider(
                     f"Made commit {commit_id} but failed to gather stats",
                     "red",
                 )
+            # Mark that the next request should start with a clean output box.
+            reset_on_new_request = True
             request_active = False
         elif waiting_on_user:
             # No commit hash yet because aider needs more input. Leave the

@@ -154,6 +154,8 @@ def main() -> None:
             output.configure(state="disabled")
             return
         msg = sanitize(raw)
+        # Remove old output if the last request finished with a commit.
+        runner.maybe_clear_output(output)
         # Disable input until aider responds so duplicate requests can't be sent.
         txt_input.config(state="disabled")
         # Generate a new request id only if we're starting a fresh request.
