@@ -3,7 +3,6 @@ import subprocess
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog
 import os
-import configparser
 import time  # Track elapsed time when waiting for commit id
 
 from utils import (
@@ -15,6 +14,8 @@ from utils import (
     extract_commit_id,
     load_working_dir,
     save_working_dir,
+    load_default_model,
+    save_default_model,
 )
 
 # Map human-friendly names to actual model identifiers
@@ -24,10 +25,8 @@ MODEL_OPTIONS = {
     "Low": "gpt-5-nano",
 }
 
-# Read default model from config.ini
-config = configparser.ConfigParser()
-config.read("config.ini")
-DEFAULT_MODEL = config.get("aider", "default_model", fallback="gpt-5-mini")
+# Read default model from config.ini using helper that falls back gracefully
+DEFAULT_MODEL = load_default_model()
 DEFAULT_CHOICE = next((k for k, v in MODEL_OPTIONS.items() if v == DEFAULT_MODEL), "Medium")
 
 
@@ -36,7 +35,6 @@ def run_aider(
     output_widget: scrolledtext.ScrolledText,
     send_btn: ttk.Button,
     txt_input: tk.Text,
-    use_external_console: bool,
     work_dir: str,
     model: str,
     timeout_minutes: int,
@@ -45,7 +43,8 @@ def run_aider(
     """Spawn the aider CLI and record the commit hash it produces."""
 
     try:
-        cmd_args = ["aider", "--model", model, "--message", msg]
+        # Automatically answer "yes" to any prompts so the UI never hangs
+        cmd_args = ["aider", "--yes-always", "--model", model, "--message", msg]
 
         output_widget.configure(state="normal")
         output_widget.insert(
@@ -54,21 +53,6 @@ def run_aider(
         )
         output_widget.see(tk.END)
         output_widget.configure(state="disabled")
-
-        if use_external_console:
-            # In an external console we can't read aider's output, so commit
-            # detection is impossible. Inform the user and return early.
-            subprocess.Popen(
-                ["cmd.exe", "/c"] + cmd_args,
-                cwd=work_dir,
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
-            )
-            output_widget.configure(state="normal")
-            output_widget.insert(tk.END, "[opened in external console]\n")
-            output_widget.insert(tk.END, "[error] Cannot determine commit id in external console mode.\n")
-            output_widget.insert(tk.END, "-" * 60 + "\n")
-            output_widget.configure(state="disabled")
-            return
 
         # Stream output back into the widget (no TTY; filter noisy warnings)
         proc = subprocess.Popen(
@@ -158,7 +142,6 @@ def on_send(event=None):
             output,
             send_btn,
             txt_input,
-            ext_console_var.get(),
             work_dir_var.get(),
             model,
             timeout_var.get(),  # Minutes to wait for commit id
@@ -229,12 +212,10 @@ def choose_dir():
     path = filedialog.askdirectory()
     if path:
         work_dir_var.set(path)
-        dir_status_label.config(text="✓", foreground="green")
         dir_path_var.set(path)
         save_working_dir(path)
     else:
         work_dir_var.set("")
-        dir_status_label.config(text="✗", foreground="red")
         dir_path_var.set("No directory selected")
         save_working_dir("")
 
@@ -242,36 +223,39 @@ def choose_dir():
 dir_btn = ttk.Button(main, text="Select Working Directory", command=choose_dir)
 dir_btn.grid(row=1, column=0, sticky="w", pady=(4, 0))
 
-dir_status_label = ttk.Label(main, text="", width=2)
-dir_status_label.grid(row=1, column=1, sticky="w", pady=(4, 0))
-
 # Displays the currently selected working directory or an error message
 dir_path_label = ttk.Label(main, textvariable=dir_path_var)
-dir_path_label.grid(row=1, column=2, columnspan=2, sticky="w", pady=(4, 0))
+dir_path_label.grid(row=1, column=1, columnspan=3, sticky="w", pady=(4, 0), padx=(8, 0))
 
 # Load any previously cached working directory
 cached_dir = load_working_dir()
 if cached_dir and os.path.isdir(cached_dir):
     work_dir_var.set(cached_dir)
-    dir_status_label.config(text="✓", foreground="green")
     dir_path_var.set(cached_dir)
 elif cached_dir:
-    dir_status_label.config(text="✗", foreground="red")
     dir_path_var.set("Cached path missing")
 
 # Model selection dropdown (right-aligned for a cleaner look)
 model_var = tk.StringVar(value=DEFAULT_CHOICE)
 model_label = ttk.Label(main, text="Model:")
-# Place label near the right edge with a bit of padding to separate from combo
-model_label.grid(row=2, column=2, sticky="e", pady=(4, 0), padx=(0, 8))
+# Place label near the right edge with minimal padding to be close to combo
+model_label.grid(row=2, column=2, sticky="e", pady=(4, 0), padx=(0, 3))
 model_combo = ttk.Combobox(
     main,
     textvariable=model_var,
     values=list(MODEL_OPTIONS.keys()),
     state="readonly",
-    width=12,  # Narrower selection box
+    width=10,  # Slightly narrower selection box
 )
-model_combo.grid(row=2, column=3, sticky="e", pady=(4, 0))
+model_combo.grid(row=2, column=3, sticky="w", pady=(4, 0))
+
+
+def on_model_change(*args):
+    """Persist model choice whenever the user selects a different option."""
+    save_default_model(MODEL_OPTIONS[model_var.get()])
+
+
+model_var.trace_add("write", on_model_change)
 
 # Input label
 lbl = ttk.Label(main, text="What can I do for you today?")
@@ -297,14 +281,6 @@ txt_input.bind("<Shift-Return>", on_shift_return)
 txt_input.focus_set()
 
 # Options row
-ext_console_var = tk.BooleanVar(value=False)
-ext_chk = ttk.Checkbutton(
-    main,
-    text="Use external console (avoid TTY warnings)",
-    variable=ext_console_var,
-)
-ext_chk.grid(row=5, column=0, sticky="w", pady=(0, 6))
-
 send_btn = ttk.Button(main, text="Send (Enter)", command=on_send)
 send_btn.grid(row=5, column=3, sticky="e", pady=(0, 6))
 

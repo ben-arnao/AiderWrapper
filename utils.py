@@ -79,9 +79,40 @@ def load_timeout(config_path: Path = CONFIG_PATH) -> int:
 
 
 def save_timeout(value: int, config_path: Path = CONFIG_PATH) -> None:
-    """Persist the timeout value back to the config file."""
+    """Persist the timeout value back to the config file.
+
+    Any existing configuration values (e.g. the default model) are preserved so
+    that updates feel "real-time" and no settings are lost when another one is
+    changed.
+    """
     config = configparser.ConfigParser()
-    config["ui"] = {"timeout_minutes": str(value)}
+    if config_path.exists():
+        config.read(config_path)
+    # Ensure required sections exist before assigning values
+    if "ui" not in config:
+        config["ui"] = {}
+    config["ui"]["timeout_minutes"] = str(value)
+    with open(config_path, "w") as fh:
+        config.write(fh)
+
+
+def load_default_model(config_path: Path = CONFIG_PATH) -> str:
+    """Return the default model choice stored in config or a sensible fallback."""
+    config = configparser.ConfigParser()
+    if config_path.exists():
+        config.read(config_path)
+    return config.get("aider", "default_model", fallback="gpt-5-mini")
+
+
+def save_default_model(model: str, config_path: Path = CONFIG_PATH) -> None:
+    """Persist the selected model so it can be restored on next launch."""
+    config = configparser.ConfigParser()
+    if config_path.exists():
+        config.read(config_path)
+    if "aider" not in config:
+        config["aider"] = {}
+    config["aider"]["default_model"] = model
+    # Make sure we don't lose other sections such as [ui]
     with open(config_path, "w") as fh:
         config.write(fh)
 

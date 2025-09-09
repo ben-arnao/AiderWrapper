@@ -83,3 +83,17 @@ def test_load_and_save_working_dir(tmp_path: Path):
     # After saving a path it should load back the same value
     utils.save_working_dir("/path/to/dir", cache)
     assert utils.load_working_dir(cache) == "/path/to/dir"
+
+
+def test_load_and_save_default_model(tmp_path: Path):
+    """Changing the model should persist and coexist with other settings."""
+    cfg = tmp_path / "config.ini"
+    # Default fallback when config is absent
+    assert utils.load_default_model(cfg) == "gpt-5-mini"
+    # After saving, the chosen model should round-trip
+    utils.save_default_model("gpt-5", cfg)
+    assert utils.load_default_model(cfg) == "gpt-5"
+    # Saving the timeout afterwards should not erase the model choice
+    utils.save_timeout(7, cfg)
+    assert utils.load_default_model(cfg) == "gpt-5"
+    assert utils.load_timeout(cfg) == 7
