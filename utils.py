@@ -18,10 +18,10 @@ NO_TTY_REGEXES = [re.compile(pat) for pat in NO_TTY_PATTERNS]
 # Path to the shared config file sitting next to this module
 CONFIG_PATH = Path(__file__).with_name("config.ini")
 
-# File where we remember the last Unity project directory selected by the user.
+# File where we remember the last working directory selected by the user.
 # Keeping it separate from the main config avoids storing file paths in
 # config.ini as per project guidelines.
-PROJECT_CACHE_PATH = Path(__file__).with_name("last_project_dir.txt")
+WORKING_DIR_CACHE_PATH = Path(__file__).with_name("last_working_dir.txt")
 
 # Regex used to detect commit hashes in aider output
 COMMIT_RE = re.compile(r"(?:Committed|commit) ([0-9a-f]{7,40})", re.IGNORECASE)
@@ -41,16 +41,16 @@ def should_suppress(line: str) -> bool:
     return any(rx.search(line) for rx in NO_TTY_REGEXES)
 
 
-def verify_unity_project(path: os.PathLike) -> bool:
-    """Basic Unity project check: ensure Assets folder and ProjectSettings/ProjectVersion.txt exist."""
-    path = os.fspath(path)
-    assets = os.path.join(path, "Assets")
-    proj_version = os.path.join(path, "ProjectSettings", "ProjectVersion.txt")
-    return os.path.isdir(assets) and os.path.isfile(proj_version)
-
-
 def verify_api_key(api_key: str, request_fn: Callable = requests.get) -> bool:
-    """Call OpenAI API to ensure the provided key is valid. Raises ValueError on failure."""
+    """Call OpenAI API to ensure the provided key is valid.
+
+    Raises
+    ------
+    ValueError
+        If the key is missing or the API responds with an error. The error
+        message includes the status code and response text for easier
+        debugging.
+    """
     if not api_key:
         raise ValueError("API key not provided")
 
@@ -60,7 +60,10 @@ def verify_api_key(api_key: str, request_fn: Callable = requests.get) -> bool:
     )
     if resp.status_code == 200:
         return True
-    raise ValueError("API key validation failed")
+    # Surface details so the caller can display them to the user
+    raise ValueError(
+        f"API key validation failed: {resp.status_code} {getattr(resp, 'text', '')}"
+    )
 
 
 def load_timeout(config_path: Path = CONFIG_PATH) -> int:
@@ -83,8 +86,8 @@ def save_timeout(value: int, config_path: Path = CONFIG_PATH) -> None:
         config.write(fh)
 
 
-def load_project_dir(cache_path: Path = PROJECT_CACHE_PATH) -> Optional[str]:
-    """Return the cached Unity project path or None if it is missing or empty."""
+def load_working_dir(cache_path: Path = WORKING_DIR_CACHE_PATH) -> Optional[str]:
+    """Return the cached working directory or None if it is missing or empty."""
     if cache_path.exists():
         text = cache_path.read_text().strip()
         # An empty file means no cached path was saved.
@@ -92,8 +95,8 @@ def load_project_dir(cache_path: Path = PROJECT_CACHE_PATH) -> Optional[str]:
     return None
 
 
-def save_project_dir(path: str, cache_path: Path = PROJECT_CACHE_PATH) -> None:
-    """Persist the selected Unity project path so it can be reloaded later."""
+def save_working_dir(path: str, cache_path: Path = WORKING_DIR_CACHE_PATH) -> None:
+    """Persist the selected working directory so it can be reloaded later."""
     with open(cache_path, "w") as fh:
         fh.write(path)
 

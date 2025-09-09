@@ -9,13 +9,12 @@ import time  # Track elapsed time when waiting for commit id
 from utils import (
     sanitize,
     should_suppress,
-    verify_unity_project,
     verify_api_key,
     load_timeout,
     save_timeout,
     extract_commit_id,
-    load_project_dir,
-    save_project_dir,
+    load_working_dir,
+    save_working_dir,
 )
 
 # Map human-friendly names to actual model identifiers
@@ -38,7 +37,7 @@ def run_aider(
     send_btn: ttk.Button,
     txt_input: tk.Text,
     use_external_console: bool,
-    project_dir: str,
+    work_dir: str,
     model: str,
     timeout_minutes: int,
     commit_frame: ttk.Frame,
@@ -61,7 +60,7 @@ def run_aider(
             # detection is impossible. Inform the user and return early.
             subprocess.Popen(
                 ["cmd.exe", "/c"] + cmd_args,
-                cwd=project_dir,
+                cwd=work_dir,
                 creationflags=subprocess.CREATE_NEW_CONSOLE,
             )
             output_widget.configure(state="normal")
@@ -74,7 +73,7 @@ def run_aider(
         # Stream output back into the widget (no TTY; filter noisy warnings)
         proc = subprocess.Popen(
             cmd_args,
-            cwd=project_dir,
+            cwd=work_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -141,9 +140,9 @@ def on_send(event=None):
     raw = txt_input.get("1.0", tk.END)
     if not raw.strip():
         return
-    if not project_dir_var.get():
+    if not work_dir_var.get():
         output.configure(state="normal")
-        output.insert(tk.END, "[error] Select a Unity project first\n")
+        output.insert(tk.END, "[error] Select a working directory first\n")
         output.configure(state="disabled")
         return
     msg = sanitize(raw)
@@ -160,7 +159,7 @@ def on_send(event=None):
             send_btn,
             txt_input,
             ext_console_var.get(),
-            project_dir_var.get(),
+            work_dir_var.get(),
             model,
             timeout_var.get(),  # Minutes to wait for commit id
             commit_frame,
@@ -218,46 +217,45 @@ settings_btn = ttk.Button(main, text="⚙", width=3, command=open_settings)
 settings_btn.grid(row=0, column=3, sticky="e")
 
 # Project directory selector
-project_dir_var = tk.StringVar(value="")
+work_dir_var = tk.StringVar(value="")
 # Separate variable used only for displaying the path or an error message
 dir_path_var = tk.StringVar(value="")
 
 
 def choose_dir():
-    """Prompt the user for a directory and validate it as a Unity project."""
+    """Prompt the user for a working directory and remember it."""
     path = filedialog.askdirectory()
     if path:
-        if verify_unity_project(path):
-            project_dir_var.set(path)
-            dir_status_label.config(text="✓", foreground="green")
-            dir_path_var.set(path)
-            save_project_dir(path)
-        else:
-            project_dir_var.set("")
-            dir_status_label.config(text="✗", foreground="red")
-            dir_path_var.set("Not a Unity project")
-            save_project_dir("")
+        work_dir_var.set(path)
+        dir_status_label.config(text="✓", foreground="green")
+        dir_path_var.set(path)
+        save_working_dir(path)
+    else:
+        work_dir_var.set("")
+        dir_status_label.config(text="✗", foreground="red")
+        dir_path_var.set("No directory selected")
+        save_working_dir("")
 
 
-dir_btn = ttk.Button(main, text="Select Unity Project", command=choose_dir)
+dir_btn = ttk.Button(main, text="Select Working Directory", command=choose_dir)
 dir_btn.grid(row=1, column=0, sticky="w", pady=(4, 0))
 
 dir_status_label = ttk.Label(main, text="", width=2)
 dir_status_label.grid(row=1, column=1, sticky="w", pady=(4, 0))
 
-# Displays the currently selected project directory or an error message
+# Displays the currently selected working directory or an error message
 dir_path_label = ttk.Label(main, textvariable=dir_path_var)
 dir_path_label.grid(row=1, column=2, columnspan=2, sticky="w", pady=(4, 0))
 
-# Load any previously cached project directory
-cached_dir = load_project_dir()
-if cached_dir and verify_unity_project(cached_dir):
-    project_dir_var.set(cached_dir)
+# Load any previously cached working directory
+cached_dir = load_working_dir()
+if cached_dir and os.path.isdir(cached_dir):
+    work_dir_var.set(cached_dir)
     dir_status_label.config(text="✓", foreground="green")
     dir_path_var.set(cached_dir)
-else:
-    if cached_dir:
-        dir_path_var.set("Cached path invalid")
+elif cached_dir:
+    dir_status_label.config(text="✗", foreground="red")
+    dir_path_var.set("Cached path missing")
 
 # Model selection dropdown (right-aligned for a cleaner look)
 model_var = tk.StringVar(value=DEFAULT_CHOICE)
@@ -320,15 +318,41 @@ commit_frame = ttk.LabelFrame(main, text="Commit History")
 commit_frame.grid(row=7, column=0, columnspan=4, sticky="ew", pady=(6, 0))
 
 
+def open_env_settings(event=None):
+    """Open the system environment variable settings on Windows."""
+    if os.name == "nt":
+        subprocess.Popen(["rundll32.exe", "sysdm.cpl,EditEnvironmentVariables"])
+
+
 def check_api_key():
-    try:
-        verify_api_key(os.environ.get("AIDER_OPENAI_API_KEY"))
-        api_status_label.config(text="API key: ✓", foreground="green")
-    except Exception as e:
-        # Show a brief reason so the user knows what went wrong
+    """Validate the OPENAI_API_KEY and report the result to the user."""
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        # Provide a clickable hint to open the environment variable settings
         api_status_label.config(
-            text=f"API key: ✗ ({e})", foreground="red"
+            text="Env var OPENAI_API_KEY is not set. Click here to set it.",
+            foreground="red",
+            cursor="hand2",
         )
+        api_status_label.bind("<Button-1>", open_env_settings)
+        send_btn.config(state="disabled")
+        return
+
+    try:
+        verify_api_key(api_key)
+        api_status_label.config(
+            text="✓ OpenAI API key verified",
+            foreground="green",
+            cursor="",
+        )
+        api_status_label.unbind("<Button-1>")
+        send_btn.config(state="normal")
+    except Exception as e:
+        # Show the failure reason from verify_api_key so the user can fix it
+        api_status_label.config(
+            text=f"API key: ✗ ({e})", foreground="red", cursor=""
+        )
+        api_status_label.unbind("<Button-1>")
         send_btn.config(state="disabled")
 
 

@@ -1,4 +1,5 @@
 import sys
+import sys
 import types
 from pathlib import Path
 
@@ -8,37 +9,48 @@ import pytest
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 import utils
 
+
 def test_sanitize_removes_noise():
-    raw = 'Hello\n\'Quote\'  Test'
-    assert utils.sanitize(raw) == 'Hello Quote Test'
+    raw = "Hello\n'Quote'  Test"
+    assert utils.sanitize(raw) == "Hello Quote Test"
+
 
 def test_should_suppress_matches_known_warning():
     line = "Can't initialize prompt toolkit: No Windows console found"
     assert utils.should_suppress(line)
 
-def test_verify_unity_project(tmp_path: Path):
-    (tmp_path / 'Assets').mkdir()
-    project_settings = tmp_path / 'ProjectSettings'
-    project_settings.mkdir()
-    (project_settings / 'ProjectVersion.txt').write_text('dummy')
-    assert utils.verify_unity_project(tmp_path)
-    for child in project_settings.iterdir():
-        child.unlink()
-    project_settings.rmdir()
-    assert not utils.verify_unity_project(tmp_path)
 
-def test_verify_api_key(monkeypatch):
+def test_verify_api_key_success():
+    """A 200 response should validate the key."""
+
     def fake_request(url, headers):
         resp = types.SimpleNamespace()
         resp.status_code = 200
         return resp
-    assert utils.verify_api_key('key', request_fn=fake_request)
+
+    assert utils.verify_api_key("key", request_fn=fake_request)
+
+
+def test_verify_api_key_failure():
+    """Non-200 responses should raise ValueError with details."""
+
     def bad_request(url, headers):
         resp = types.SimpleNamespace()
         resp.status_code = 401
+        resp.text = "unauthorized"
         return resp
+
+    with pytest.raises(ValueError) as exc:
+        utils.verify_api_key("key", request_fn=bad_request)
+    assert "401" in str(exc.value)
+    assert "unauthorized" in str(exc.value)
+
+
+def test_verify_api_key_missing():
+    """Empty keys should raise an explicit error."""
+
     with pytest.raises(ValueError):
-        utils.verify_api_key('key', request_fn=bad_request)
+        utils.verify_api_key("")
 
 
 def test_extract_commit_id_found():
@@ -63,11 +75,11 @@ def test_load_and_save_timeout(tmp_path: Path):
     assert utils.load_timeout(cfg) == 10
 
 
-def test_load_and_save_project_dir(tmp_path: Path):
-    """The last selected project directory should persist between runs."""
-    cache = tmp_path / "proj.txt"
+def test_load_and_save_working_dir(tmp_path: Path):
+    """The last selected working directory should persist between runs."""
+    cache = tmp_path / "dir.txt"
     # Without a cache file we expect None
-    assert utils.load_project_dir(cache) is None
+    assert utils.load_working_dir(cache) is None
     # After saving a path it should load back the same value
-    utils.save_project_dir("/path/to/project", cache)
-    assert utils.load_project_dir(cache) == "/path/to/project"
+    utils.save_working_dir("/path/to/dir", cache)
+    assert utils.load_working_dir(cache) == "/path/to/dir"
