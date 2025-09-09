@@ -160,6 +160,27 @@ def needs_user_input(line: str) -> bool:
     return any(rx.match(stripped) for rx in USER_INPUT_REGEXES)
 
 
+def update_status(status_var, status_label, message: str, color: str = "black") -> None:
+    """Set a Tk status label's text and color in one call.
+
+    Parameters
+    ----------
+    status_var:
+        ``StringVar`` controlling the label's text.
+    status_label:
+        The label widget to recolor.
+    message:
+        Text shown to the user describing the current state.
+    color:
+        Foreground color name for the label (defaults to neutral black).
+    """
+
+    # Display the message so the user knows what is happening
+    status_var.set(message)
+    # Color-code the message to communicate success or failure at a glance
+    status_label.config(foreground=color)
+
+
 def get_commit_stats(commit_id: str, repo_path: str) -> dict:
     """Return line and file change counts for a given commit.
 

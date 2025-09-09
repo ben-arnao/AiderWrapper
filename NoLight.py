@@ -1,7 +1,7 @@
 import threading
 import subprocess
 import tkinter as tk
-from tkinter import ttk, scrolledtext, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox
 import os
 import time  # Track elapsed time when waiting for commit id
 import uuid  # Generate a unique id for each request
@@ -20,9 +20,9 @@ from utils import (
     get_commit_stats,  # Compute line/file counts for commits
     load_usage_days,  # Read how far back to query billing data
     fetch_usage_data,  # Retrieve spending/credit information
-    build_and_launch_game,  # Build and run the Unity project on demand
     format_history_row,  # Prepare rows for the history table
     HISTORY_COL_WIDTHS,  # Default widths for history columns
+    update_status,  # Helper to update status text and color
 )
 
 # Map human-friendly names to actual model identifiers
@@ -43,7 +43,7 @@ request_active = False  # True while we're waiting on aider to finish
 
 def run_aider(
     msg: str,
-    output_widget: scrolledtext.ScrolledText,
+    output_widget: tk.Text,
     txt_input: tk.Text,
     work_dir: str,
     model: str,
@@ -60,8 +60,9 @@ def run_aider(
     """
 
     global request_active
-    # Remove any previous "test changes" link before starting a new request
-    status_label.config(foreground="black", cursor="")
+    # Ensure the status bar is reset for each new request by removing any
+    # previous click handlers and cursor styling.
+    status_label.config(cursor="")
     status_label.unbind("<Button-1>")
 
     try:
@@ -70,8 +71,11 @@ def run_aider(
 
         # Let the user know we're waiting on aider and start a simple countdown
         # so they can see when a timeout will occur.
-        status_var.set(
-            f"Waiting on aider's response... {timeout_minutes * 60} seconds to timeout"
+        update_status(
+            status_var,
+            status_label,
+            f"Waiting on aider's response... {timeout_minutes * 60} seconds to timeout",
+            "black",
         )
 
         output_widget.configure(state="normal")
@@ -106,8 +110,11 @@ def run_aider(
             # Stop updating once we have a result or are waiting on the user.
             if commit_id or failure_reason or waiting_on_user or remaining < 0:
                 return
-            status_var.set(
-                f"Waiting on aider's response... {remaining} seconds to timeout"
+            update_status(
+                status_var,
+                status_label,
+                f"Waiting on aider's response... {remaining} seconds to timeout",
+                "black",
             )
             root.after(1000, update_countdown)
 
@@ -132,7 +139,7 @@ def run_aider(
             # the user reply instead of timing out.
             if needs_user_input(line):
                 waiting_on_user = True
-                status_var.set("Aider is waiting on our input")
+                update_status(status_var, status_label, "Aider is waiting on our input", "orange")
                 proc.kill()
                 break
 
@@ -143,7 +150,12 @@ def run_aider(
                 and time.time() - start_time > timeout_minutes * 60
             ):
                 failure_reason = "Timed out waiting for commit id"
-                status_var.set("Failed to make commit due to timeout")
+                update_status(
+                    status_var,
+                    status_label,
+                    "Failed to make commit due to timeout",
+                    "red",
+                )
                 proc.kill()
                 break
 
@@ -170,14 +182,11 @@ def run_aider(
                         "description": stats["description"],
                     }
                 )
-                status_var.set(
-                    f"Successfully made changes with commit id {commit_id}. Click to test changes"
-                )
-                # Make the status label look and behave like a hyperlink that
-                # builds and launches the user's game when clicked
-                status_label.config(foreground="blue", cursor="hand2")
-                status_label.bind(
-                    "<Button-1>", lambda _e: build_and_launch_game()
+                update_status(
+                    status_var,
+                    status_label,
+                    f"Successfully made changes with commit id {commit_id}",
+                    "green",
                 )
             except Exception as e:
                 # If stats collection fails, record the error but keep running.
@@ -191,8 +200,11 @@ def run_aider(
                         "description": "",
                     }
                 )
-                status_var.set(
-                    f"Made commit {commit_id} but failed to gather stats"
+                update_status(
+                    status_var,
+                    status_label,
+                    f"Made commit {commit_id} but failed to gather stats",
+                    "red",
                 )
             request_active = False
         elif waiting_on_user:
@@ -207,7 +219,12 @@ def run_aider(
             output_widget.insert(tk.END, f"[exit code: {proc.returncode}]\n")
             output_widget.insert(tk.END, "-" * 60 + "\n")
             output_widget.configure(state="disabled")
-            status_var.set(f"Failed to make commit due to {failure_reason}")
+            update_status(
+                status_var,
+                status_label,
+                f"Failed to make commit due to {failure_reason}",
+                "red",
+            )
             request_history.append(
                 {
                     "request_id": request_id,
@@ -226,7 +243,12 @@ def run_aider(
             "\n[error] Could not find 'aider'. Make sure it's installed and on your PATH.\n",
         )
         output_widget.configure(state="disabled")
-        status_var.set("Failed to make commit due to missing 'aider'")
+        update_status(
+            status_var,
+            status_label,
+            "Failed to make commit due to missing 'aider'",
+            "red",
+        )
         request_history.append(
             {
                 "request_id": request_id,
@@ -382,10 +404,22 @@ model_combo.grid(row=2, column=3, sticky="w", pady=(4, 0))
 lbl = ttk.Label(main, text="What can I do for you today?")
 lbl.grid(row=3, column=0, sticky="w", pady=(4, 0))
 
-# Multiline input (Shift+Enter for newline; Enter to send)
-txt_input = scrolledtext.ScrolledText(main, width=100, height=6, wrap="word")
-txt_input.grid(row=4, column=0, columnspan=4, sticky="nsew", pady=(4, 0))
-main.rowconfigure(4, weight=0)
+# Paned window lets the user resize input and output areas
+paned = ttk.PanedWindow(main, orient="vertical")
+paned.grid(row=4, column=0, columnspan=4, sticky="nsew", pady=(4, 0))
+main.rowconfigure(4, weight=1)
+
+# --- Input area -----------------------------------------------------------
+input_frame = ttk.Frame(paned)
+# Text widget where the user enters prompts; scrollbar keeps it tidy
+txt_input = tk.Text(input_frame, wrap="word")
+input_scroll = ttk.Scrollbar(input_frame, orient="vertical", command=txt_input.yview)
+txt_input.configure(yscrollcommand=input_scroll.set)
+txt_input.grid(row=0, column=0, sticky="nsew")
+input_scroll.grid(row=0, column=1, sticky="ns")
+input_frame.rowconfigure(0, weight=1)
+input_frame.columnconfigure(0, weight=1)
+paned.add(input_frame, weight=1)
 
 
 def on_return(event):
@@ -401,22 +435,28 @@ txt_input.bind("<Return>", on_return)
 txt_input.bind("<Shift-Return>", on_shift_return)
 txt_input.focus_set()
 
+# --- Response area --------------------------------------------------------
+response_frame = ttk.Frame(paned)
+
 # Status bar communicates whether we're waiting on aider or user input
 status_var = tk.StringVar(value="Aider is waiting on our input")
-# Frame with a border so the status bar looks visually distinct and "boxed".
-status_frame = ttk.Frame(main, borderwidth=1, relief="solid")
-status_frame.grid(row=5, column=0, columnspan=4, sticky="ew", pady=0)
+# Border around status bar helps it stand out from the output text
+status_frame = ttk.Frame(response_frame, borderwidth=1, relief="solid")
+status_frame.grid(row=0, column=0, sticky="ew")
 status_label = ttk.Label(status_frame, textvariable=status_var)
-# Expand label to fill the frame horizontally.
 status_label.pack(fill="x", padx=2, pady=2)
 
-# Output area where aider output is streamed
-output = scrolledtext.ScrolledText(
-    main, width=100, height=24, wrap="word", state="disabled"
-)
-# Attach the output area directly below the status frame with no spacing.
-output.grid(row=6, column=0, columnspan=4, sticky="nsew", pady=(0, 0))
-main.rowconfigure(6, weight=1)
+# Output area where aider output is streamed back to the user
+output = tk.Text(response_frame, wrap="word", state="disabled")
+output_scroll = ttk.Scrollbar(response_frame, orient="vertical", command=output.yview)
+output.configure(yscrollcommand=output_scroll.set)
+output.grid(row=1, column=0, sticky="nsew")
+output_scroll.grid(row=1, column=1, sticky="ns")
+response_frame.rowconfigure(1, weight=1)
+response_frame.columnconfigure(0, weight=1)
+
+# Give the response area more room than the input by default
+paned.add(response_frame, weight=3)
 
 
 def show_history():
@@ -478,11 +518,11 @@ def show_api_usage():
 
 # Simple button to pop up the history table
 history_btn = ttk.Button(main, text="History", command=show_history)
-history_btn.grid(row=7, column=0, sticky="w", pady=(6, 0))
+history_btn.grid(row=5, column=0, sticky="w", pady=(6, 0))
 
 # Button to display API usage information
 usage_btn = ttk.Button(main, text="API usage", command=show_api_usage)
-usage_btn.grid(row=7, column=3, sticky="e", pady=(6, 0))
+usage_btn.grid(row=5, column=3, sticky="e", pady=(6, 0))
 
 
 def open_env_settings(event=None):
