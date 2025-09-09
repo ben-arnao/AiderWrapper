@@ -208,7 +208,7 @@ def test_fetch_usage_data_error():
     with pytest.raises(ValueError):
         utils.fetch_usage_data("key", request_fn=bad_request)
 
-def test_build_and_launch_game_runs(monkeypatch):
+def test_build_and_launch_game_runs(monkeypatch, tmp_path):
     """Building then launching should invoke subprocess.run and subprocess.Popen."""
     calls = []  # record the order and arguments of subprocess calls
 
@@ -221,13 +221,19 @@ def test_build_and_launch_game_runs(monkeypatch):
         calls.append(("popen", cmd))
         return types.SimpleNamespace()
 
+    # Patch which() so the build tool appears to exist on the system
+    monkeypatch.setattr(utils.shutil, "which", lambda _cmd: "/usr/bin/build")
     # Replace subprocess functions with our fakes so no real commands run
     monkeypatch.setattr(utils.subprocess, "run", fake_run)
     monkeypatch.setattr(utils.subprocess, "Popen", fake_popen)
 
-    proc = utils.build_and_launch_game(["build"], ["run"])
+    # Create a dummy game file to satisfy the existence check
+    game = tmp_path / "game.exe"
+    game.touch()
 
-    assert calls == [("run", ["build"], True), ("popen", ["run"])]
+    proc = utils.build_and_launch_game(["build"], [str(game)])
+
+    assert calls == [("run", ["build"], True), ("popen", [str(game)])]
     assert isinstance(proc, types.SimpleNamespace)
 
 
@@ -237,7 +243,29 @@ def test_build_and_launch_game_propagates_build_error(monkeypatch):
     def fail_run(cmd, check):
         raise subprocess.CalledProcessError(1, cmd)
 
+    # Pretend the build tool exists so we reach the failing run()
+    monkeypatch.setattr(utils.shutil, "which", lambda _cmd: "/usr/bin/build")
     monkeypatch.setattr(utils.subprocess, "run", fail_run)
 
     with pytest.raises(subprocess.CalledProcessError):
         utils.build_and_launch_game(["build"], ["run"])
+
+
+def test_build_and_launch_game_missing_build_tool():
+    """A missing build executable should raise FileNotFoundError."""
+    with pytest.raises(FileNotFoundError):
+        utils.build_and_launch_game(["missing_tool"], ["run"])
+
+
+def test_build_and_launch_game_missing_game_binary(monkeypatch, tmp_path):
+    """If the built game is absent, an explicit error should be raised."""
+
+    # Pretend the build tool exists and the build command succeeds
+    monkeypatch.setattr(utils.shutil, "which", lambda _cmd: "/usr/bin/build")
+    monkeypatch.setattr(utils.subprocess, "run", lambda cmd, check: None)
+
+    # Path to a game binary that was not created by the build step
+    missing_game = tmp_path / "no_game.exe"
+
+    with pytest.raises(FileNotFoundError):
+        utils.build_and_launch_game(["build"], [str(missing_game)])
