@@ -4,7 +4,8 @@ from pathlib import Path
 # Ensure project root is on path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-import utils
+# Import git-related helpers directly from the utils package
+from utils.git import format_history_row, HISTORY_COL_WIDTHS
 
 
 def test_format_history_row_truncates_ids():
@@ -17,7 +18,7 @@ def test_format_history_row_truncates_ids():
         "failure_reason": "oops",
         "description": "something happened",
     }
-    row = utils.format_history_row(rec)
+    row = format_history_row(rec)
     # Only the first 8 characters should remain for the IDs
     assert row[0] == "12345678"
     assert row[1] == "fedcba09"
@@ -35,4 +36,4 @@ def test_history_column_width_defaults():
         "failure_reason": 200,
         "description": 300,
     }
-    assert utils.HISTORY_COL_WIDTHS == expected
+    assert HISTORY_COL_WIDTHS == expected

@@ -5,18 +5,18 @@ from tkinter import ttk, filedialog, messagebox
 import os
 import uuid
 
-from utils import (
-    sanitize,
-    verify_api_key,
+# Import helpers from the modular utils package so unrelated changes touch
+# fewer files and reduce merge conflicts.
+from utils.text import sanitize
+from utils.api import verify_api_key, fetch_usage_data
+from utils.config import (
     load_timeout,
     save_timeout,
     load_working_dir,
     save_working_dir,
     load_usage_days,
-    fetch_usage_data,
-    format_history_row,
-    HISTORY_COL_WIDTHS,
 )
+from utils.git import format_history_row, HISTORY_COL_WIDTHS
 
 from nolight import runner
 
