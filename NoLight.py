@@ -5,6 +5,7 @@ from tkinter import ttk, scrolledtext, filedialog
 import os
 import time  # Track elapsed time when waiting for commit id
 import uuid  # Generate a unique id for each request
+from typing import Optional, List
 
 from utils import (
     sanitize,
@@ -33,8 +34,8 @@ DEFAULT_MODEL = load_default_model()
 DEFAULT_CHOICE = next((k for k, v in MODEL_OPTIONS.items() if v == DEFAULT_MODEL), "Medium")
 
 # Track details for each user request so they can be shown in a history table.
-request_history: list[dict] = []  # List of per-request summaries
-current_request_id: str | None = None  # UUID for the active request
+request_history: List[dict] = []  # List of per-request summaries
+current_request_id: Optional[str] = None  # UUID for the active request
 request_active = False  # True while we're waiting on aider to finish
 
 
@@ -87,8 +88,8 @@ def run_aider(
         )
 
         start_time = time.time()
-        commit_id: str | None = None
-        failure_reason: str | None = None
+        commit_id: Optional[str] = None
+        failure_reason: Optional[str] = None
         waiting_on_user = False  # Set when aider asks for more information
 
         def update_countdown() -> None:
