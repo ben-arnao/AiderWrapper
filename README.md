@@ -8,5 +8,6 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 - Remembers the last selected Unity project and shows the current path next to the chooser.
 - Multiline text area for composing prompts.
 - Startup check that validates the `AIDER_OPENAI_API_KEY` via a test API call.
+- Runs the aider CLI behind the scenes via a pseudo-terminal so no extra console window is needed.
 - Timeout for detecting the commit ID is adjustable (default 5 minutes) via a gear-icon settings dialog.
 - When a commit ID is detected in aider's output, the console is cleared and the commit hash is recorded in a history box so previous runs are easy to review.

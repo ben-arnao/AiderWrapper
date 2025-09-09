@@ -1,6 +1,7 @@
 import sys
 import types
 from pathlib import Path
+import os
 
 import pytest
 
@@ -71,3 +72,20 @@ def test_load_and_save_project_dir(tmp_path: Path):
     # After saving a path it should load back the same value
     utils.save_project_dir("/path/to/project", cache)
     assert utils.load_project_dir(cache) == "/path/to/project"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="PTY not supported on Windows")
+def test_spawn_pty_process_captures_output():
+    """Running a simple command through the pseudo-terminal should yield its output."""
+    proc, fd = utils.spawn_pty_process(["python", "-c", "print('hi')"])
+    with fd:
+        output = ""
+        try:
+            # Read lines until the child process closes the pseudo-terminal
+            for line in fd:
+                output += line
+        except OSError:
+            # Some platforms raise EIO when the slave end is closed; that's fine
+            pass
+    proc.wait()
+    assert "hi" in output
