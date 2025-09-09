@@ -299,3 +299,75 @@ def test_build_and_launch_game_missing_game_binary(monkeypatch, tmp_path):
 
     with pytest.raises(FileNotFoundError):
         utils.build_and_launch_game(["build"], [str(missing_game)])
+
+
+def test_find_unity_exe_from_config(tmp_path):
+    """Path from config.ini should be returned when present."""
+    unity = tmp_path / "Unity.exe"
+    unity.touch()  # create dummy executable
+    cfg = tmp_path / "config.ini"
+    cfg.write_text(f"[build]\nbuild_cmd = {unity}\n")
+    assert utils._find_unity_exe(cfg) == str(unity)
+
+
+def test_find_unity_exe_from_env(monkeypatch, tmp_path):
+    """UNITY_PATH env var should be used when config is missing."""
+    unity = tmp_path / "Unity.exe"
+    unity.touch()
+    monkeypatch.setenv("UNITY_PATH", str(unity))
+    assert utils._find_unity_exe(tmp_path / "missing.ini") == str(unity)
+
+
+def test_find_unity_exe_autodiscover(monkeypatch, tmp_path):
+    """Auto-discovery should pick the highest-version Unity install."""
+    # Create two fake Unity paths so we can choose the "latest" one
+    older = tmp_path / "a" / "Unity.exe"
+    older.parent.mkdir()
+    older.touch()
+    newer = tmp_path / "b" / "Unity.exe"
+    newer.parent.mkdir()
+    newer.touch()
+    monkeypatch.delenv("UNITY_PATH", raising=False)
+    # Patch glob.glob to return our fake candidates
+    monkeypatch.setattr(utils.glob, "glob", lambda pattern: [str(older), str(newer)])
+    assert utils._find_unity_exe(tmp_path / "missing.ini") == str(newer)
+
+
+def test_find_unity_exe_missing(monkeypatch, tmp_path):
+    """An explicit error should be raised when Unity.exe cannot be found."""
+    monkeypatch.delenv("UNITY_PATH", raising=False)
+    monkeypatch.setattr(utils.glob, "glob", lambda pattern: [])
+    with pytest.raises(FileNotFoundError) as exc:
+        utils._find_unity_exe(tmp_path / "missing.ini")
+    assert "Unity Editor executable not found" in str(exc.value)
+
+
+def test_build_and_launch_game_uses_finder(monkeypatch, tmp_path):
+    """When no build_cmd is supplied, _find_unity_exe should provide the path."""
+    calls = []  # record subprocess usage
+
+    # Pretend Unity.exe lives here
+    unity = tmp_path / "Unity.exe"
+    unity.touch()
+    game = tmp_path / "game.exe"
+    game.touch()
+
+    # Provide a fake finder so we know the path used
+    monkeypatch.setattr(utils, "_find_unity_exe", lambda cfg=utils.CONFIG_PATH: str(unity))
+
+    # Patch subprocess.run and Popen so nothing real executes
+    def fake_run(cmd, check):
+        calls.append(("run", cmd, check))
+
+    def fake_popen(cmd):
+        calls.append(("popen", cmd))
+        return types.SimpleNamespace()
+
+    monkeypatch.setattr(utils.subprocess, "run", fake_run)
+    monkeypatch.setattr(utils.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(utils.shutil, "which", lambda p: p)
+
+    proc = utils.build_and_launch_game(run_cmd=[str(game)])
+
+    assert calls[0][1][0] == str(unity)
+    assert isinstance(proc, types.SimpleNamespace)

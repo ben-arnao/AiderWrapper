@@ -12,6 +12,7 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 - Timeout preference is saved to a small config file, but the model always defaults to **Medium** on startup.
 - The Send button has been removed—press **Enter** to dispatch a prompt.
 - A boxed status bar sits between the prompt area and the output, reporting whether we're waiting on aider or the user.
+- After a successful commit, the status bar offers a **Test changes** link that builds and launches your Unity project via the command line. Configure the Unity Editor path via `config.ini` (`[build] build_cmd`), the `UNITY_PATH` environment variable, or let the app auto-detect a Unity Hub installation.
 - Draggable divider lets the prompt area take space from the response area when needed.
 - Successful commits highlight the status bar message in green.
 - Output from previous requests remains visible so the full conversation can be reviewed.

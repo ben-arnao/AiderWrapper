@@ -7,6 +7,7 @@ from datetime import date, timedelta  # Compute date ranges for API calls
 
 import subprocess  # Run external commands like git or Unity
 import shutil  # Locate executables on the PATH
+import glob  # Search common install locations on Windows
 import requests
 
 # Patterns to filter noisy warnings when no TTY is attached
@@ -386,16 +387,54 @@ def format_history_row(rec: dict) -> tuple:
         rec.get("description", ""),
     )
 
-def build_and_launch_game(
-    build_cmd=None, run_cmd=None
-):
+
+def _find_unity_exe(config_path: Path = CONFIG_PATH) -> str:
+    """Locate the Unity Editor executable using config, env var, or auto-search.
+
+    The lookup order is:
+    1. ``[build] build_cmd`` value in ``config.ini``
+    2. ``UNITY_PATH`` environment variable
+    3. Most recent Unity installation under the standard Hub location
+
+    A helpful ``FileNotFoundError`` is raised if nothing is found.
+    """
+
+    cfg = configparser.ConfigParser()
+    build_cmd = None
+
+    # 1) Read build_cmd from the optional [build] section of config.ini
+    if config_path.exists():
+        cfg.read(config_path)
+        build_cmd = cfg.get("build", "build_cmd", fallback="").strip() or None
+
+    # 2) Fall back to UNITY_PATH environment variable
+    build_cmd = build_cmd or os.environ.get("UNITY_PATH")
+
+    # 3) Auto-discover Unity installations if nothing was specified
+    if not build_cmd:
+        candidates = glob.glob(r"C:\\Program Files\\Unity\\Hub\\Editor\\*\\Editor\\Unity.exe")
+        if candidates:
+            # Choose the highest version by sorting the folder names
+            build_cmd = sorted(candidates)[-1]
+
+    # 4) Validate that the resulting path points to a file
+    if build_cmd and Path(build_cmd).is_file():
+        return build_cmd
+
+    raise FileNotFoundError(
+        "Unity Editor executable not found.\n"
+        "Set config build_cmd to the full path to Unity.exe or define UNITY_PATH.\n"
+        "Example: C:\\Program Files\\Unity\\Hub\\Editor\\2022.3.20f1\\Editor\\Unity.exe"
+    )
+
+def build_and_launch_game(build_cmd=None, run_cmd=None):
     """Build the Unity project then start the resulting executable.
 
     Parameters
     ----------
     build_cmd : list[str], optional
-        Command used to build the project. Defaults to a headless Unity build
-        that runs ``BuildScript.PerformBuild``.
+        Pre-constructed command used to build the project. When ``None`` we
+        locate the Unity Editor and construct a headless build command.
     run_cmd : list[str], optional
         Command used to launch the built game. Defaults to ``./YourGameExecutable``.
 
@@ -412,9 +451,10 @@ def build_and_launch_game(
         If the Unity executable or game binary cannot be located.
     """
     if build_cmd is None:
-        # Default to a typical headless Unity build command
+        # Resolve Unity.exe using config/environment and build in batch mode
+        unity_exe = _find_unity_exe()
         build_cmd = [
-            "unity",  # Unity CLI expected on the PATH
+            unity_exe,
             "-batchmode",
             "-nographics",
             "-quit",
