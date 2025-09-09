@@ -21,6 +21,21 @@ CONFIG_PATH = Path(__file__).with_name("config.ini")
 WORKING_DIR_CACHE_PATH = Path(__file__).with_name("last_working_dir.txt")
 
 
+def _read_log_tail(log_file: Path, lines: int = 80) -> str:
+    """Return the last ``lines`` from ``log_file`` or ``""`` if unavailable.
+
+    Reading the log tail helps surface Unity build errors without dumping the
+    entire file into the UI. Any exception while reading is ignored so that
+    failures to access the log do not mask the original problem.
+    """
+
+    try:
+        with open(log_file, "r", encoding="utf-8", errors="ignore") as fh:
+            return "".join(fh.readlines()[-lines:])
+    except Exception:
+        return ""
+
+
 def load_default_model(config_path: Path = CONFIG_PATH) -> str:
     """Return the model to use on startup."""
     # Model selection is no longer persisted between sessions, so we always start
@@ -144,32 +159,32 @@ def build_and_launch_game(
 
     # Run the build without ``check=True`` so we can surface log output on failure.
     proc = subprocess.run(build_cmd, capture_output=True, text=True)
+    stderr_text = proc.stderr.strip()
 
     if proc.returncode != 0:
-        # Attempt to read the last ~80 lines of Unity's log for context.
-        tail = ""
-        if log_file and log_file.exists():
-            try:
-                with open(log_file, "r", encoding="utf-8", errors="ignore") as fh:
-                    lines = fh.readlines()
-                    tail = "".join(lines[-80:])
-            except Exception:
-                pass
+        # Non-zero exit means Unity reported a failure; include stderr and log tail
+        # so the user can see what went wrong.
+        tail = _read_log_tail(log_file) if log_file else ""
         log_display = str(log_file) if log_file else "(no log file)"
         msg = (
             f"Unity batch build failed (exit {proc.returncode}).\n"
             f"Command: {' '.join(build_cmd)}\n\n"
-            f"STDERR:\n{proc.stderr.strip() or '(empty)'}\n\n"
+            f"STDERR:\n{stderr_text or '(empty)'}\n\n"
             f"--- Log tail ({log_display}) ---\n{tail or '(log missing)'}"
         )
         raise RuntimeError(msg)
 
-    # Confirm the game binary was produced by the build step.
+    # Confirm the game binary was produced; if not, surface stderr/log tail for context.
     game_path = Path(run_cmd[0])
     if not game_path.exists():
-        raise FileNotFoundError(
-            f"Game binary '{run_cmd[0]}' not found. Verify the build output path."
+        tail = _read_log_tail(log_file) if log_file else ""
+        log_display = str(log_file) if log_file else "(no log file)"
+        msg = (
+            f"Game binary '{run_cmd[0]}' not found. Verify the build output path.\n"
+            f"STDERR:\n{stderr_text or '(empty)'}\n\n"
+            f"--- Log tail ({log_display}) ---\n{tail or '(log missing)'}"
         )
+        raise FileNotFoundError(msg)
 
     # Start the game without waiting for it to exit.
     return subprocess.Popen(run_cmd)
