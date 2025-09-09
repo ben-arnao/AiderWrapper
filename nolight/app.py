@@ -1,7 +1,7 @@
 import threading
 import subprocess
 import tkinter as tk
-# Import common Tk widgets plus ``messagebox`` for error dialogs.
+# Import common Tk widgets plus the messagebox for error dialogs
 from tkinter import ttk, filedialog, messagebox
 import os
 import uuid
@@ -27,7 +27,6 @@ MODEL_OPTIONS = {
     "Low": "gpt-5-nano",
 }
 
-# Always start with the medium model; the choice isn't persisted between runs.
 DEFAULT_CHOICE = "Medium"
 
 
@@ -43,11 +42,8 @@ def launch_game() -> None:
         messagebox.showerror("Build failed", str(exc))
 
 
-def main() -> None:
-    """Create the Tkinter UI and start the main event loop."""
-
-    root = tk.Tk()
-    root.title("Aider Prompt UI")
+def build_ui(root: tk.Tk):
+    """Create all widgets for the main window and return key components."""
 
     main_frame = ttk.Frame(root, padding=8)
     main_frame.grid(row=0, column=0, sticky="nsew")
@@ -101,28 +97,30 @@ def main() -> None:
     elif cached_dir:
         dir_path_var.set("Cached path missing")
 
-    # Model selection dropdown (right-aligned for a cleaner look)
+    # Model selection dropdown aligned to the left under the directory button
     model_var = tk.StringVar(value=DEFAULT_CHOICE)
     model_label = ttk.Label(main_frame, text="Model:")
-    # Place label near the right edge with minimal padding to be close to combo
-    model_label.grid(row=2, column=2, sticky="e", pady=(4, 0), padx=(0, 3))
+    model_label.grid(row=2, column=0, sticky="w", pady=(4, 0))
     model_combo = ttk.Combobox(
         main_frame,
         textvariable=model_var,
         values=list(MODEL_OPTIONS.keys()),
         state="readonly",
-        width=10,  # Slightly narrower selection box
+        width=10,
     )
-    model_combo.grid(row=2, column=3, sticky="w", pady=(4, 0))
+    model_combo.grid(row=2, column=1, sticky="w", pady=(4, 0))
 
-    # Input label
+    # Spacer row adds a blank line before the prompt label for readability
+    ttk.Label(main_frame, text="").grid(row=3, column=0)
+
+    # Input label introduces the text entry area
     lbl = ttk.Label(main_frame, text="What can I do for you today?")
-    lbl.grid(row=3, column=0, sticky="w", pady=(4, 0))
+    lbl.grid(row=4, column=0, sticky="w", pady=(4, 0))
 
     # Paned window lets the user resize input and output areas
     paned = ttk.PanedWindow(main_frame, orient="vertical")
-    paned.grid(row=4, column=0, columnspan=4, sticky="nsew", pady=(4, 0))
-    main_frame.rowconfigure(4, weight=1)
+    paned.grid(row=5, column=0, columnspan=4, sticky="nsew", pady=(4, 0))
+    main_frame.rowconfigure(5, weight=1)
 
     # --- Input area -----------------------------------------------------------
     input_frame = ttk.Frame(paned)
@@ -240,11 +238,11 @@ def main() -> None:
 
     # Simple button to pop up the history table
     history_btn = ttk.Button(main_frame, text="History", command=show_history)
-    history_btn.grid(row=5, column=0, sticky="w", pady=(6, 0))
+    history_btn.grid(row=6, column=0, sticky="w", pady=(6, 0))
 
     # Show how much money has been spent in the current session
     session_cost_label = ttk.Label(main_frame, textvariable=session_cost_var)
-    session_cost_label.grid(row=5, column=3, sticky="e", pady=(6, 0))
+    session_cost_label.grid(row=6, column=3, sticky="e", pady=(6, 0))
 
     def open_env_settings(event=None) -> None:
         """Open the system environment variable settings on Windows."""
@@ -282,6 +280,21 @@ def main() -> None:
             api_status_label.unbind("<Button-1>")
             txt_input.config(state="disabled")
 
-    root.after(0, check_api_key)
+    widgets = {
+        "model_label": model_label,
+        "model_combo": model_combo,
+        "prompt_label": lbl,
+    }
+
+    return widgets, check_api_key
+
+
+def main() -> None:
+    """Create the Tkinter UI and start the main event loop."""
+
+    root = tk.Tk()
+    root.title("Aider Prompt UI")
+    _, check_api = build_ui(root)
+    root.after(0, check_api)
     root.mainloop()
 

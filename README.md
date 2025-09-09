@@ -4,6 +4,7 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 
 ## Features
 - Dropdown to select model quality: **High** (`gpt-5`), **Medium** (`gpt-5-mini`, default), or **Low** (`gpt-5-nano`).
+- Model selector sits beneath the working directory chooser for a cleaner layout.
 - Working directory chooser that shows the current path and remembers the last selection.
 - Multiline text area for composing prompts.
 - Startup check that validates the `OPENAI_API_KEY` via a test API call.
