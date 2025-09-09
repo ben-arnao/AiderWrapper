@@ -21,27 +21,6 @@ CONFIG_PATH = Path(__file__).with_name("config.ini")
 WORKING_DIR_CACHE_PATH = Path(__file__).with_name("last_working_dir.txt")
 
 
-def load_timeout(config_path: Path = CONFIG_PATH) -> int:
-    """Return timeout (minutes) from config or default to 5."""
-    config = configparser.ConfigParser()
-    if config_path.exists():
-        config.read(config_path)
-    return config.getint("ui", "timeout_minutes", fallback=5)
-
-
-def save_timeout(value: int, config_path: Path = CONFIG_PATH) -> None:
-    """Persist the timeout value back to the config file."""
-    config = configparser.ConfigParser()
-    if config_path.exists():
-        config.read(config_path)
-    # Ensure required sections exist before assigning values
-    if "ui" not in config:
-        config["ui"] = {}
-    config["ui"]["timeout_minutes"] = str(value)
-    with open(config_path, "w") as fh:
-        config.write(fh)
-
-
 def load_default_model(config_path: Path = CONFIG_PATH) -> str:
     """Return the model to use on startup."""
     # Model selection is no longer persisted between sessions, so we always start

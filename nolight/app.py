@@ -10,8 +10,6 @@ import uuid
 from utils.text import sanitize
 from utils.api import verify_api_key, fetch_usage_data
 from utils.config import (
-    load_timeout,
-    save_timeout,
     load_working_dir,
     save_working_dir,
     load_usage_days,
@@ -42,39 +40,14 @@ def main() -> None:
     root.rowconfigure(0, weight=1)
     root.columnconfigure(0, weight=1)
 
-    # Default timeout pulled from config file and saved back when modified
-    timeout_var = tk.IntVar(value=load_timeout())
-
-    def on_timeout_change(*_args):
-        # Persist any changes to the timeout so it survives restarts
-        save_timeout(timeout_var.get())
-
-    timeout_var.trace_add("write", on_timeout_change)
-
     # Make the second column expandable so labels sit directly next to buttons
     for col in range(4):
         main_frame.columnconfigure(col, weight=1 if col == 1 else 0)
 
     # API key status label
     api_status_label = ttk.Label(main_frame, text="API key: checking...", foreground="orange")
-    # Span first three columns so a settings button can live in the fourth
-    api_status_label.grid(row=0, column=0, columnspan=3, sticky="w")
-
-    def open_settings() -> None:
-        """Pop up a small window to house UI-related settings."""
-        win = tk.Toplevel(root)
-        win.title("Settings")
-
-        ttk.Label(win, text="Timeout (min):").grid(row=0, column=0, padx=8, pady=8, sticky="w")
-        # The spinbox shares the same variable used in the main UI so changes
-        # automatically persist via the trace handler.
-        ttk.Spinbox(win, from_=1, to=60, textvariable=timeout_var, width=5).grid(
-            row=0, column=1, padx=8, pady=8, sticky="w"
-        )
-
-    # Simple gear icon button that opens the settings window
-    settings_btn = ttk.Button(main_frame, text="⚙", width=3, command=open_settings)
-    settings_btn.grid(row=0, column=3, sticky="e")
+    # Span all columns since the settings button was removed
+    api_status_label.grid(row=0, column=0, columnspan=4, sticky="w")
 
     # Project directory selector
     work_dir_var = tk.StringVar(value="")
@@ -173,11 +146,9 @@ def main() -> None:
                 txt_input,
                 work_dir_var.get(),
                 model,
-                timeout_var.get(),  # Minutes to wait for commit id
                 status_var,
                 status_label,
                 req_id,
-                root,
             ),
             daemon=True,
         )

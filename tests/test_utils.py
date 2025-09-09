@@ -97,16 +97,6 @@ def test_needs_user_input_ignores_regular_output():
     assert not text_utils.needs_user_input(line)
 
 
-def test_load_and_save_timeout(tmp_path: Path):
-    """Saving then loading should persist the timeout value."""
-    cfg = tmp_path / "config.ini"
-    # When file is missing, default should be 5
-    assert config_utils.load_timeout(cfg) == 5
-    # After saving a new value, it should round-trip
-    config_utils.save_timeout(10, cfg)
-    assert config_utils.load_timeout(cfg) == 10
-
-
 def test_load_and_save_working_dir(tmp_path: Path):
     """The last selected working directory should persist between runs."""
     cache = tmp_path / "dir.txt"

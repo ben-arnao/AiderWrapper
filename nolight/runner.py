@@ -1,5 +1,4 @@
 import subprocess
-import time
 from typing import Optional, List
 
 import tkinter as tk
@@ -96,11 +95,9 @@ def run_aider(
     txt_input: tk.Text,
     work_dir: str,
     model: str,
-    timeout_minutes: int,
     status_var: tk.StringVar,
     status_label: ttk.Label,
     request_id: str,
-    root: tk.Tk,
 ) -> None:
     """Spawn the aider CLI and capture commit details.
 
@@ -119,12 +116,12 @@ def run_aider(
         # Automatically answer "yes" to any prompts so the UI never hangs.
         cmd_args = ["aider", "--yes-always", "--model", model, "--message", msg]
 
-        # Let the user know we're waiting on aider and start a simple countdown
-        # so they can see when a timeout will occur.
+        # Shorten the request id for compact status messages
+        short_id = request_id[:8]
         update_status(
             status_var,
             status_label,
-            f"Waiting on aider's response... {timeout_minutes * 60} seconds to timeout",
+            f"Request {short_id}: waiting on aider's response...",
             "black",
         )
 
@@ -147,30 +144,10 @@ def run_aider(
             errors="replace",
         )
 
-        start_time = time.time()
         commit_id: Optional[str] = None
         failure_reason: Optional[str] = None
         waiting_on_user = False  # Set when aider asks for more information
         last_line = ""  # Remember the most recent non-empty line from aider
-
-        def update_countdown() -> None:
-            """Refresh the status bar every second with remaining time."""
-
-            elapsed = time.time() - start_time
-            remaining = int(timeout_minutes * 60 - elapsed)
-            # Stop updating once we have a result or are waiting on the user.
-            if commit_id or failure_reason or waiting_on_user or remaining < 0:
-                return
-            update_status(
-                status_var,
-                status_label,
-                f"Waiting on aider's response... {remaining} seconds to timeout",
-                "black",
-            )
-            root.after(1000, update_countdown)
-
-        # Kick off the countdown updates using the Tk root from the caller.
-        root.after(1000, update_countdown)
 
         # Read line-by-line so the UI stays responsive.
         for line in proc.stdout:
@@ -195,18 +172,12 @@ def run_aider(
             # the user reply instead of timing out.
             if needs_user_input(line):
                 waiting_on_user = True
-                update_status(status_var, status_label, "Aider is waiting on our input", "orange")
-                proc.kill()
-                break
-
-            # Stop waiting if timeout elapsed without a commit id.
-            if (
-                commit_id is None
-                and not waiting_on_user
-                and time.time() - start_time > timeout_minutes * 60
-            ):
-                # Note the timeout but let final handling display and record it
-                failure_reason = "Timed out waiting for commit id"
+                update_status(
+                    status_var,
+                    status_label,
+                    f"Request {short_id}: waiting on our input",
+                    "orange",
+                )
                 proc.kill()
                 break
 
@@ -220,7 +191,7 @@ def run_aider(
                 update_status(
                     status_var,
                     status_label,
-                    f"Successfully made changes with commit id {commit_id}",
+                    f"Request {short_id}: committed changes ({commit_id})",
                     "green",
                 )
             except Exception as e:
@@ -233,7 +204,7 @@ def run_aider(
                 update_status(
                     status_var,
                     status_label,
-                    f"Made commit {commit_id} but failed to gather stats",
+                    f"Request {short_id}: commit {commit_id} but stats failed",
                     "red",
                 )
             # Mark that the next request should start with a clean output box.
@@ -256,7 +227,7 @@ def run_aider(
             update_status(
                 status_var,
                 status_label,
-                f"Failed to make commit due to {failure_reason}",
+                f"Request {short_id}: failed - {failure_reason}",
                 "red",
             )
             # Store the detailed reason so it appears in the history table
