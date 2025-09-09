@@ -20,6 +20,7 @@ from utils import (
     get_commit_stats,  # Compute line/file counts for commits
     load_usage_days,  # Read how far back to query billing data
     fetch_usage_data,  # Retrieve spending/credit information
+    build_and_launch_game,  # Build and run the Unity project on demand
     format_history_row,  # Prepare rows for the history table
     HISTORY_COL_WIDTHS,  # Default widths for history columns
 )
@@ -48,6 +49,7 @@ def run_aider(
     model: str,
     timeout_minutes: int,
     status_var: tk.StringVar,
+    status_label: ttk.Label,
     request_id: str,
 ):
     """Spawn the aider CLI and capture commit details.
@@ -58,6 +60,9 @@ def run_aider(
     """
 
     global request_active
+    # Remove any previous "test changes" link before starting a new request
+    status_label.config(foreground="black", cursor="")
+    status_label.unbind("<Button-1>")
 
     try:
         # Automatically answer "yes" to any prompts so the UI never hangs.
@@ -166,7 +171,13 @@ def run_aider(
                     }
                 )
                 status_var.set(
-                    f"Successfully made changes with commit id {commit_id}"
+                    f"Successfully made changes with commit id {commit_id}. Click to test changes"
+                )
+                # Make the status label look and behave like a hyperlink that
+                # builds and launches the user's game when clicked
+                status_label.config(foreground="blue", cursor="hand2")
+                status_label.bind(
+                    "<Button-1>", lambda _e: build_and_launch_game()
                 )
             except Exception as e:
                 # If stats collection fails, record the error but keep running.
@@ -264,6 +275,7 @@ def on_send(event=None):
             model,
             timeout_var.get(),  # Minutes to wait for commit id
             status_var,
+            status_label,
             req_id,
         ),
         daemon=True,

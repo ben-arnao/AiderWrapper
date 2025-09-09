@@ -207,3 +207,37 @@ def test_fetch_usage_data_error():
 
     with pytest.raises(ValueError):
         utils.fetch_usage_data("key", request_fn=bad_request)
+
+def test_build_and_launch_game_runs(monkeypatch):
+    """Building then launching should invoke subprocess.run and subprocess.Popen."""
+    calls = []  # record the order and arguments of subprocess calls
+
+    def fake_run(cmd, check):
+        # capture the build command
+        calls.append(("run", cmd, check))
+
+    def fake_popen(cmd):
+        # capture the launch command and return a dummy process object
+        calls.append(("popen", cmd))
+        return types.SimpleNamespace()
+
+    # Replace subprocess functions with our fakes so no real commands run
+    monkeypatch.setattr(utils.subprocess, "run", fake_run)
+    monkeypatch.setattr(utils.subprocess, "Popen", fake_popen)
+
+    proc = utils.build_and_launch_game(["build"], ["run"])
+
+    assert calls == [("run", ["build"], True), ("popen", ["run"])]
+    assert isinstance(proc, types.SimpleNamespace)
+
+
+def test_build_and_launch_game_propagates_build_error(monkeypatch):
+    """If the build step fails, the exception should bubble up."""
+
+    def fail_run(cmd, check):
+        raise subprocess.CalledProcessError(1, cmd)
+
+    monkeypatch.setattr(utils.subprocess, "run", fail_run)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        utils.build_and_launch_game(["build"], ["run"])
