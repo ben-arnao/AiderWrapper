@@ -118,6 +118,82 @@ def test_run_aider_records_exit_reason(monkeypatch):
     assert status_var.value == "Request req1: failed - aider exited with code 2: boom"
 
 
+def test_run_aider_reports_empty_output(monkeypatch):
+    """If aider exits silently, a placeholder reason should be recorded."""
+
+    runner.request_history.clear()
+
+    class DummyText:
+        def __init__(self):
+            self.text = ""
+
+        def insert(self, _idx, txt):
+            # Append any text that runner writes to mimic a Tk widget.
+            self.text += txt
+
+        def see(self, _idx):
+            pass
+
+        def configure(self, **kwargs):
+            pass
+
+        def config(self, **kwargs):
+            pass
+
+        def focus_set(self):
+            pass
+
+    class DummyVar:
+        def __init__(self):
+            self.value = ""
+
+        def set(self, _val):
+            # Remember the last status message for assertions.
+            self.value = _val
+
+    class DummyLabel:
+        def config(self, **kwargs):
+            pass
+
+        def unbind(self, *_args, **_kwargs):
+            pass
+
+    class MockPopen:
+        def __init__(self, *args, **kwargs):
+            # Simulate aider producing no output before exiting with an error.
+            self.stdout = io.StringIO("")
+            self.returncode = 1
+
+        def wait(self):
+            return self.returncode
+
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: MockPopen())
+
+    output = DummyText()
+    txt_input = DummyText()
+    status_var = DummyVar()
+    status_label = DummyLabel()
+
+    runner.run_aider(
+        msg="hi",
+        output_widget=output,
+        txt_input=txt_input,
+        work_dir=".",
+        model="gpt-5",
+        status_var=status_var,
+        status_label=status_label,
+        request_id="req1",
+    )
+
+    rec = runner.request_history[0]
+    # The failure reason should include our placeholder message.
+    assert rec["failure_reason"] == "aider exited with code 1: no output captured"
+    assert status_var.value == "Request req1: failed - aider exited with code 1: no output captured"
+
+
 def test_run_aider_records_cost(monkeypatch):
     """run_aider should parse cost lines and track session totals."""
     runner.request_history.clear()
