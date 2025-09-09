@@ -41,6 +41,76 @@ def test_record_request_failure():
     assert rec["failure_reason"] == "error"
 
 
+def test_run_aider_includes_agents_and_readme(monkeypatch):
+    """run_aider should always pass AGENTS.md and README.md to aider."""
+    runner.request_history.clear()
+
+    captured = {}
+
+    # Minimal Tk stand-ins so runner can call the expected methods
+    class DummyText:
+        def insert(self, *_args):
+            pass
+
+        def see(self, *_args):
+            pass
+
+        def configure(self, **_kwargs):
+            pass
+
+        def config(self, **_kwargs):
+            pass
+
+        def focus_set(self):
+            pass
+
+    class DummyVar:
+        def set(self, _val):
+            pass
+
+    class DummyLabel:
+        def config(self, **_kwargs):
+            pass
+
+        def unbind(self, *_args, **_kwargs):
+            pass
+
+    class MockPopen:
+        def __init__(self, cmd, *args, **kwargs):
+            # Remember the full command so we can assert on it later
+            captured["cmd"] = cmd
+            self.stdout = io.StringIO("")  # No output needed for this test
+            self.returncode = 0
+
+        def wait(self):
+            return self.returncode
+
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(runner.subprocess, "Popen", MockPopen)
+
+    output = DummyText()
+    txt_input = DummyText()
+    status_var = DummyVar()
+    status_label = DummyLabel()
+
+    runner.run_aider(
+        msg="hi",
+        output_widget=output,
+        txt_input=txt_input,
+        work_dir=".",
+        model="gpt-5",
+        status_var=status_var,
+        status_label=status_label,
+        request_id="req_agents",
+    )
+
+    # The aider command should include the project rules and README for context
+    assert "AGENTS.md" in captured["cmd"]
+    assert "README.md" in captured["cmd"]
+
+
 def test_run_aider_no_commit_fails(monkeypatch):
     """Return code 0 without a commit should still be treated as a failure."""
     runner.request_history.clear()

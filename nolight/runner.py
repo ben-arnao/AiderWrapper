@@ -120,8 +120,18 @@ def run_aider(
     status_label.unbind("<Button-1>")
 
     try:
-        # Automatically answer "yes" to any prompts so the UI never hangs.
-        cmd_args = ["aider", "--yes-always", "--model", model, "--message", msg]
+        # Automatically answer "yes" and always include project instructions
+        # so aider sees AGENTS.md and README.md on every request.
+        cmd_args = [
+            "aider",
+            "AGENTS.md",
+            "README.md",
+            "--yes-always",
+            "--model",
+            model,
+            "--message",
+            msg,
+        ]
 
         # Shorten the request id for compact status messages
         short_id = request_id[:8]
@@ -134,7 +144,8 @@ def run_aider(
 
         output_widget.configure(state="normal")
         output_widget.insert(
-            tk.END, f"\n> aider --model {model} --message \"{msg}\"\n\n"
+            tk.END,
+            f"\n> aider AGENTS.md README.md --model {model} --message \"{msg}\"\n\n",
         )
         output_widget.see(tk.END)
         output_widget.configure(state="disabled")
