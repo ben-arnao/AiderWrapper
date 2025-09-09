@@ -1,7 +1,8 @@
 import threading
 import subprocess
 import tkinter as tk
-from tkinter import ttk, filedialog
+# Import common Tk widgets plus ``messagebox`` for error dialogs.
+from tkinter import ttk, filedialog, messagebox
 import os
 import uuid
 
