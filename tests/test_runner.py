@@ -41,13 +41,11 @@ def test_record_request_failure():
     assert rec["failure_reason"] == "error"
 
 
-def test_run_aider_ask_mode(monkeypatch):
-    """Ask mode should invoke aider with --read-only and not treat success as failure."""
+def test_run_aider_no_commit_fails(monkeypatch):
+    """Return code 0 without a commit should still be treated as a failure."""
     runner.request_history.clear()
 
-    captured = {}
-
-    # Simple stand-ins for the Tk widgets used by the runner.
+    # Dummy stand-ins for Tk widgets so runner can interact with them
     class DummyText:
         def insert(self, *_args):
             pass
@@ -79,10 +77,9 @@ def test_run_aider_ask_mode(monkeypatch):
             pass
 
     class MockPopen:
-        def __init__(self, cmd, *args, **kwargs):
-            # Capture the command arguments so we can assert on them later.
-            captured["cmd"] = cmd
-            self.stdout = io.StringIO("hello\n")
+        def __init__(self, *args, **kwargs):
+            # Aider prints a line but doesn't commit anything and exits cleanly
+            self.stdout = io.StringIO("hi\n")
             self.returncode = 0
 
         def wait(self):
@@ -91,7 +88,7 @@ def test_run_aider_ask_mode(monkeypatch):
         def kill(self):
             pass
 
-    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: MockPopen(*a, **k))
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: MockPopen())
 
     output = DummyText()
     txt_input = DummyText()
@@ -106,17 +103,12 @@ def test_run_aider_ask_mode(monkeypatch):
         model="gpt-5",
         status_var=status_var,
         status_label=status_label,
-        request_id="req2",
-        ask_mode=True,
+        request_id="req_no_commit",
     )
 
-    # The command should include the --read-only flag.
-    assert "--read-only" in captured["cmd"]
     rec = runner.request_history[0]
-    # No commit should be recorded and there should be no failure reason.
     assert rec["commit_id"] is None
-    assert rec["failure_reason"] is None
-
+    assert rec["failure_reason"] == "aider exited with code 0: hi"
 
 def test_run_aider_records_exit_reason(monkeypatch):
     """run_aider should store exit code and last line on failure."""
