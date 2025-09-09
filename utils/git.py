@@ -113,3 +113,27 @@ def format_history_row(rec: dict) -> tuple:
         rec.get("failure_reason", ""),
         rec.get("description", ""),
     )
+
+
+def format_history_row_full(rec: dict) -> tuple:
+    """Return the full, unabridged values for a history record."""
+    # No abbreviation here; copy/paste should expose the complete data.
+    return (
+        rec.get("request_id", ""),
+        rec.get("commit_id", ""),
+        rec.get("lines", 0),
+        rec.get("files", 0),
+        rec.get("cost", 0.0),
+        rec.get("failure_reason", ""),
+        rec.get("description", ""),
+    )
+
+
+def history_records_to_tsv(records: list[dict]) -> str:
+    """Return history records as a tab-separated string for the clipboard."""
+    # Convert each record into a row of strings using the full data.
+    rows = [
+        "\t".join(str(v) for v in format_history_row_full(rec)) for rec in records
+    ]
+    # Join all rows with newlines so multiple selections stack vertically.
+    return "\n".join(rows)

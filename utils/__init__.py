@@ -8,6 +8,8 @@ from .git import (
     extract_commit_id,
     get_commit_stats,
     format_history_row,
+    format_history_row_full,
+    history_records_to_tsv,
     HISTORY_COL_WIDTHS,
 )
 from .config import (
@@ -28,6 +30,8 @@ __all__ = [
     "extract_commit_id",
     "get_commit_stats",
     "format_history_row",
+    "format_history_row_full",
+    "history_records_to_tsv",
     "HISTORY_COL_WIDTHS",
     "load_default_model",
     "save_default_model",
