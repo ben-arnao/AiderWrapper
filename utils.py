@@ -78,36 +78,6 @@ def verify_api_key(api_key: str, request_fn: Callable = requests.get) -> bool:
     )
 
 
-def load_timeout(config_path: Path = CONFIG_PATH) -> int:
-    """Return timeout (minutes) from config or default to 5.
-
-    The config file uses a [ui] section; if it or the key is missing,
-    a default of 5 minutes is returned.
-    """
-    config = configparser.ConfigParser()
-    if config_path.exists():
-        config.read(config_path)
-    return config.getint("ui", "timeout_minutes", fallback=5)
-
-
-def save_timeout(value: int, config_path: Path = CONFIG_PATH) -> None:
-    """Persist the timeout value back to the config file.
-
-    Any existing configuration values (e.g. the default model) are preserved so
-    that updates feel "real-time" and no settings are lost when another one is
-    changed.
-    """
-    config = configparser.ConfigParser()
-    if config_path.exists():
-        config.read(config_path)
-    # Ensure required sections exist before assigning values
-    if "ui" not in config:
-        config["ui"] = {}
-    config["ui"]["timeout_minutes"] = str(value)
-    with open(config_path, "w") as fh:
-        config.write(fh)
-
-
 def load_default_model(config_path: Path = CONFIG_PATH) -> str:
     """Return the model to use on startup.
 

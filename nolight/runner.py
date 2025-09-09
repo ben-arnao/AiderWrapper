@@ -1,5 +1,4 @@
 import subprocess
-import time
 from typing import Optional, List
 
 import tkinter as tk
@@ -73,11 +72,9 @@ def run_aider(
     txt_input: tk.Text,
     work_dir: str,
     model: str,
-    timeout_minutes: int,
     status_var: tk.StringVar,
     status_label: ttk.Label,
     request_id: str,
-    root: tk.Tk,
 ) -> None:
     """Spawn the aider CLI and capture commit details.
 
@@ -96,14 +93,8 @@ def run_aider(
         # Automatically answer "yes" to any prompts so the UI never hangs.
         cmd_args = ["aider", "--yes-always", "--model", model, "--message", msg]
 
-        # Let the user know we're waiting on aider and start a simple countdown
-        # so they can see when a timeout will occur.
-        update_status(
-            status_var,
-            status_label,
-            f"Waiting on aider's response... {timeout_minutes * 60} seconds to timeout",
-            "black",
-        )
+        # Notify the user that we're awaiting aider's response.
+        update_status(status_var, status_label, "Waiting on aider's response...", "black")
 
         output_widget.configure(state="normal")
         output_widget.insert(
@@ -124,29 +115,9 @@ def run_aider(
             errors="replace",
         )
 
-        start_time = time.time()
         commit_id: Optional[str] = None
         failure_reason: Optional[str] = None
         waiting_on_user = False  # Set when aider asks for more information
-
-        def update_countdown() -> None:
-            """Refresh the status bar every second with remaining time."""
-
-            elapsed = time.time() - start_time
-            remaining = int(timeout_minutes * 60 - elapsed)
-            # Stop updating once we have a result or are waiting on the user.
-            if commit_id or failure_reason or waiting_on_user or remaining < 0:
-                return
-            update_status(
-                status_var,
-                status_label,
-                f"Waiting on aider's response... {remaining} seconds to timeout",
-                "black",
-            )
-            root.after(1000, update_countdown)
-
-        # Kick off the countdown updates using the Tk root from the caller.
-        root.after(1000, update_countdown)
 
         # Read line-by-line so the UI stays responsive.
         for line in proc.stdout:
@@ -162,27 +133,10 @@ def run_aider(
             if cid:
                 commit_id = cid
 
-            # If aider is asking for more information, stop the process and let
-            # the user reply instead of timing out.
+            # If aider asks for more details, stop the process so the user can reply.
             if needs_user_input(line):
                 waiting_on_user = True
                 update_status(status_var, status_label, "Aider is waiting on our input", "orange")
-                proc.kill()
-                break
-
-            # Stop waiting if timeout elapsed without a commit id.
-            if (
-                commit_id is None
-                and not waiting_on_user
-                and time.time() - start_time > timeout_minutes * 60
-            ):
-                failure_reason = "Timed out waiting for commit id"
-                update_status(
-                    status_var,
-                    status_label,
-                    "Failed to make commit due to timeout",
-                    "red",
-                )
                 proc.kill()
                 break
 
