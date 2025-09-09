@@ -110,6 +110,16 @@ def build_ui(root: tk.Tk):
     )
     model_combo.grid(row=2, column=1, sticky="w", pady=(4, 0))
 
+    # Toggle lets the user switch between editing code and ask-only mode.
+    ask_mode_var = tk.BooleanVar(value=False)
+    ask_mode_check = ttk.Checkbutton(
+        main_frame,
+        text="Ask only",
+        variable=ask_mode_var,
+    )
+    # Place the toggle to the right of the model selector for a compact layout.
+    ask_mode_check.grid(row=2, column=2, columnspan=2, sticky="w", padx=(8, 0), pady=(4, 0))
+
     # Spacer row adds a blank line before the prompt label for readability
     ttk.Label(main_frame, text="").grid(row=3, column=0)
 
@@ -159,6 +169,8 @@ def build_ui(root: tk.Tk):
         req_id = runner.current_request_id
 
         model = MODEL_OPTIONS[model_var.get()]
+        # Pass the ask_mode flag so the runner can invoke aider in read-only mode
+        # when the user only wants to ask questions.
         t = threading.Thread(
             target=runner.run_aider,
             args=(
@@ -170,6 +182,7 @@ def build_ui(root: tk.Tk):
                 status_var,
                 status_label,
                 req_id,
+                ask_mode_var.get(),
                 session_cost_var,
             ),
             daemon=True,
@@ -300,6 +313,7 @@ def build_ui(root: tk.Tk):
         "model_label": model_label,
         "model_combo": model_combo,
         "prompt_label": lbl,
+        "ask_mode_check": ask_mode_check,
     }
 
     return widgets, check_api_key

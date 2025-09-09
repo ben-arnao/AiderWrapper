@@ -41,6 +41,83 @@ def test_record_request_failure():
     assert rec["failure_reason"] == "error"
 
 
+def test_run_aider_ask_mode(monkeypatch):
+    """Ask mode should invoke aider with --read-only and not treat success as failure."""
+    runner.request_history.clear()
+
+    captured = {}
+
+    # Simple stand-ins for the Tk widgets used by the runner.
+    class DummyText:
+        def insert(self, *_args):
+            pass
+
+        def see(self, *_args):
+            pass
+
+        def configure(self, **_kwargs):
+            pass
+
+        def config(self, **_kwargs):
+            pass
+
+        def focus_set(self):
+            pass
+
+    class DummyVar:
+        def __init__(self):
+            self.value = ""
+
+        def set(self, val):
+            self.value = val  # Remember last status message
+
+    class DummyLabel:
+        def config(self, **_kwargs):
+            pass
+
+        def unbind(self, *_args, **_kwargs):
+            pass
+
+    class MockPopen:
+        def __init__(self, cmd, *args, **kwargs):
+            # Capture the command arguments so we can assert on them later.
+            captured["cmd"] = cmd
+            self.stdout = io.StringIO("hello\n")
+            self.returncode = 0
+
+        def wait(self):
+            return self.returncode
+
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: MockPopen(*a, **k))
+
+    output = DummyText()
+    txt_input = DummyText()
+    status_var = DummyVar()
+    status_label = DummyLabel()
+
+    runner.run_aider(
+        msg="hi",
+        output_widget=output,
+        txt_input=txt_input,
+        work_dir=".",
+        model="gpt-5",
+        status_var=status_var,
+        status_label=status_label,
+        request_id="req2",
+        ask_mode=True,
+    )
+
+    # The command should include the --read-only flag.
+    assert "--read-only" in captured["cmd"]
+    rec = runner.request_history[0]
+    # No commit should be recorded and there should be no failure reason.
+    assert rec["commit_id"] is None
+    assert rec["failure_reason"] is None
+
+
 def test_run_aider_records_exit_reason(monkeypatch):
     """run_aider should store exit code and last line on failure."""
     runner.request_history.clear()
