@@ -161,23 +161,28 @@ def run_aider(
         for line in proc.stdout:
             if should_suppress(line):
                 continue
+
+            # Remove ANSI color codes so the UI doesn't display strange characters
+            clean_line = strip_ansi(line)
+
+            # Echo aider's response back to the text widget for the user to read
             output_widget.configure(state="normal")
-            output_widget.insert(tk.END, line)
+            output_widget.insert(tk.END, clean_line)
             output_widget.see(tk.END)
             output_widget.configure(state="disabled")
 
             # Keep track of the latest meaningful line for error reporting
-            clean = strip_ansi(line).strip()  # Remove color codes before analysis
+            clean = clean_line.strip()  # After stripping color codes, drop extra spaces
             if clean:  # Ignore lines that become empty once ANSI codes are stripped
                 last_line = clean
 
             # Try to extract a commit hash from the stream.
-            cid = extract_commit_id(line)
+            cid = extract_commit_id(clean_line)
             if cid:
                 commit_id = cid
 
             # Capture cost information when aider reports it
-            amt = extract_cost(line)
+            amt = extract_cost(clean_line)
             if amt is not None:
                 request_cost = amt
                 session_total_cost += amt
@@ -189,7 +194,7 @@ def run_aider(
 
             # If aider is asking for more information, stop the process and let
             # the user reply instead of timing out.
-            if needs_user_input(line):
+            if needs_user_input(clean_line):
                 waiting_on_user = True
                 update_status(
                     status_var,
