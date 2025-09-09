@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+# Ensure the project root is on the Python path so we can import utils
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 import utils
 
@@ -38,3 +39,25 @@ def test_verify_api_key(monkeypatch):
         return resp
     with pytest.raises(ValueError):
         utils.verify_api_key('key', request_fn=bad_request)
+
+
+def test_extract_commit_id_found():
+    """A commit hash embedded in the text should be returned."""
+    text = "Some output\nCommitted abcdef1 add feature\n"
+    assert utils.extract_commit_id(text) == "abcdef1"
+
+
+def test_extract_commit_id_missing():
+    """If no commit hash is present, None should be returned."""
+    text = "Aider did nothing useful"
+    assert utils.extract_commit_id(text) is None
+
+
+def test_load_and_save_timeout(tmp_path: Path):
+    """Saving then loading should persist the timeout value."""
+    cfg = tmp_path / "config.ini"
+    # When file is missing, default should be 5
+    assert utils.load_timeout(cfg) == 5
+    # After saving a new value, it should round-trip
+    utils.save_timeout(10, cfg)
+    assert utils.load_timeout(cfg) == 10

@@ -4,8 +4,17 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog
 import os
 import configparser
+import time  # Track elapsed time when waiting for commit id
 
-from utils import sanitize, should_suppress, verify_unity_project, verify_api_key
+from utils import (
+    sanitize,
+    should_suppress,
+    verify_unity_project,
+    verify_api_key,
+    load_timeout,
+    save_timeout,
+    extract_commit_id,
+)
 
 # Map human-friendly names to actual model identifiers
 MODEL_OPTIONS = {
@@ -29,8 +38,11 @@ def run_aider(
     use_external_console: bool,
     project_dir: str,
     model: str,
+    timeout_minutes: int,
+    commit_frame: ttk.Frame,
 ):
-    """Spawn the aider CLI and stream output back into the UI."""
+    """Spawn the aider CLI and record the commit hash it produces."""
+
     try:
         cmd_args = ["aider", "--model", model, "--message", msg]
 
@@ -43,7 +55,8 @@ def run_aider(
         output_widget.configure(state="disabled")
 
         if use_external_console:
-            # Launch in a separate console so Aider has a real TTY
+            # In an external console we can't read aider's output, so commit
+            # detection is impossible. Inform the user and return early.
             subprocess.Popen(
                 ["cmd.exe", "/c"] + cmd_args,
                 cwd=project_dir,
@@ -51,33 +64,63 @@ def run_aider(
             )
             output_widget.configure(state="normal")
             output_widget.insert(tk.END, "[opened in external console]\n")
+            output_widget.insert(tk.END, "[error] Cannot determine commit id in external console mode.\n")
             output_widget.insert(tk.END, "-" * 60 + "\n")
             output_widget.configure(state="disabled")
-        else:
-            # Stream output back into the widget (no TTY; filter noisy warnings)
-            proc = subprocess.Popen(
-                cmd_args,
-                cwd=project_dir,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
+            return
 
-            # Read line-by-line so the UI stays responsive
-            for line in proc.stdout:
-                if should_suppress(line):
-                    continue
-                output_widget.configure(state="normal")
-                output_widget.insert(tk.END, line)
-                output_widget.see(tk.END)
-                output_widget.configure(state="disabled")
+        # Stream output back into the widget (no TTY; filter noisy warnings)
+        proc = subprocess.Popen(
+            cmd_args,
+            cwd=project_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
 
-            proc.wait()
+        start_time = time.time()
+        commit_id: str | None = None
+        failure_reason: str | None = None
+
+        # Read line-by-line so the UI stays responsive
+        for line in proc.stdout:
+            if should_suppress(line):
+                continue
             output_widget.configure(state="normal")
-            output_widget.insert(tk.END, f"\n[exit code: {proc.returncode}]\n")
-            output_widget.insert(tk.END, "-" * 60 + "\n")
+            output_widget.insert(tk.END, line)
             output_widget.see(tk.END)
+            output_widget.configure(state="disabled")
+
+            # Try to extract a commit hash from the stream
+            cid = extract_commit_id(line)
+            if cid:
+                commit_id = cid
+
+            # Stop waiting if timeout elapsed without a commit id
+            if commit_id is None and time.time() - start_time > timeout_minutes * 60:
+                failure_reason = "Timed out waiting for commit id"
+                proc.kill()
+                break
+
+        proc.wait()
+
+        if commit_id:
+            # Clear previous console output for readability
+            output_widget.configure(state="normal")
+            output_widget.delete("1.0", tk.END)
+            output_widget.configure(state="disabled")
+
+            # Record commit hash in the history box
+            lbl = ttk.Label(commit_frame, text=f"Commit: {commit_id}")
+            lbl.pack(anchor="w")
+        else:
+            if failure_reason is None:
+                failure_reason = "No commit id found"
+            output_widget.configure(state="normal")
+            output_widget.insert(tk.END, f"\n[error] {failure_reason}\n")
+            output_widget.insert(tk.END, f"[exit code: {proc.returncode}]\n")
+            output_widget.insert(tk.END, "-" * 60 + "\n")
             output_widget.configure(state="disabled")
     except FileNotFoundError:
         output_widget.configure(state="normal")
@@ -117,6 +160,8 @@ def on_send(event=None):
             ext_console_var.get(),
             project_dir_var.get(),
             model,
+            timeout_var.get(),  # Minutes to wait for commit id
+            commit_frame,
         ),
         daemon=True,
     )
@@ -135,9 +180,21 @@ main.grid(row=0, column=0, sticky="nsew")
 root.rowconfigure(0, weight=1)
 root.columnconfigure(0, weight=1)
 
+# Default timeout pulled from config file and saved back when modified
+timeout_var = tk.IntVar(value=load_timeout())
+
+def on_timeout_change(*args):
+    save_timeout(timeout_var.get())
+
+timeout_var.trace_add("write", on_timeout_change)
+
+# Allow column 0 to stretch while others remain fixed
+for col in range(4):
+    main.columnconfigure(col, weight=1 if col == 0 else 0)
+
 # API key status label
 api_status_label = ttk.Label(main, text="API key: checking...", foreground="orange")
-api_status_label.grid(row=0, column=0, columnspan=2, sticky="w")
+api_status_label.grid(row=0, column=0, columnspan=4, sticky="w")
 
 # Project directory selector
 project_dir_var = tk.StringVar(value="")
@@ -153,7 +210,6 @@ def choose_dir():
             dir_status_label.config(text="✗", foreground="red")
 
 dir_btn = ttk.Button(main, text="Select Unity Project", command=choose_dir)
-
 dir_btn.grid(row=1, column=0, sticky="w", pady=(4, 0))
 
 dir_status_label = ttk.Label(main, text="", width=2)
@@ -177,7 +233,7 @@ lbl.grid(row=3, column=0, sticky="w", pady=(4, 0))
 
 # Multiline input (Shift+Enter for newline; Enter to send)
 txt_input = scrolledtext.ScrolledText(main, width=100, height=6, wrap="word")
-txt_input.grid(row=4, column=0, columnspan=2, sticky="nsew", pady=(4, 8))
+txt_input.grid(row=4, column=0, columnspan=4, sticky="nsew", pady=(4, 8))
 main.rowconfigure(4, weight=0)
 
 
@@ -203,15 +259,26 @@ ext_chk = ttk.Checkbutton(
 )
 ext_chk.grid(row=5, column=0, sticky="w", pady=(0, 6))
 
-send_btn = ttk.Button(main, text="Send (Enter)", command=on_send)
-send_btn.grid(row=5, column=1, sticky="e", pady=(0, 6))
+# User-adjustable timeout spinbox
+timeout_lbl = ttk.Label(main, text="Timeout (min):")
+timeout_lbl.grid(row=5, column=1, sticky="e")
 
-# Output area
+timeout_spin = ttk.Spinbox(main, from_=1, to=60, textvariable=timeout_var, width=5)
+timeout_spin.grid(row=5, column=2, sticky="w")
+
+send_btn = ttk.Button(main, text="Send (Enter)", command=on_send)
+send_btn.grid(row=5, column=3, sticky="e", pady=(0, 6))
+
+# Output area where aider output is streamed
 output = scrolledtext.ScrolledText(
     main, width=100, height=24, wrap="word", state="disabled"
 )
-output.grid(row=6, column=0, columnspan=2, sticky="nsew")
+output.grid(row=6, column=0, columnspan=4, sticky="nsew")
 main.rowconfigure(6, weight=1)
+
+# Box that collects commit ids for each request
+commit_frame = ttk.LabelFrame(main, text="Commit History")
+commit_frame.grid(row=7, column=0, columnspan=4, sticky="ew", pady=(6, 0))
 
 
 def check_api_key():
