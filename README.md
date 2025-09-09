@@ -7,7 +7,7 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 - Working directory chooser that shows the current path and remembers the last selection.
 - Multiline text area for composing prompts.
 - Startup check that validates the `OPENAI_API_KEY` via a test API call.
-- Each request receives a unique identifier and is logged in a table that shows commit ids, total line and file changes, and any failure reason. The history view abbreviates IDs so the table remains compact.
+- Each request receives a unique identifier and is logged in a table that shows commit ids, total line and file changes, per-request cost, and any failure reason. The history view abbreviates IDs so the table remains compact.
 - Failed runs record aider's exit code and last output line so troubleshooting is easier.
 - The Send button has been removed—press **Enter** to dispatch a prompt.
 - A boxed status bar sits between the prompt area and the output, showing detailed status for each request and whether we're waiting on aider or the user.
@@ -16,7 +16,7 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 - Draggable divider lets the prompt area take space from the response area when needed.
 - Successful commits highlight the status bar message in green.
 - After a successful commit, starting a new request clears prior output so separate conversations don't mix.
-- An **API usage** button displays recent spending and remaining credits using the OpenAI billing API.
+- Each request records its cost in dollars and the total session spend is shown in the main window.
 
 ## Development Best Practices
 
