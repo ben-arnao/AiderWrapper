@@ -4,6 +4,7 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 
 ## Features
 - Dropdown to select model quality: **High** (`gpt-5`), **Medium** (`gpt-5-mini`, default), or **Low** (`gpt-5-nano`).
+- Model selector sits beneath the working directory chooser for a cleaner layout.
 - Working directory chooser that shows the current path and remembers the last selection.
 - Multiline text area for composing prompts.
 - Startup check that validates the `OPENAI_API_KEY` via a test API call.
@@ -14,6 +15,7 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 - A boxed status bar sits between the prompt area and the output, showing detailed status for each request and whether we're waiting on aider or the user.
 - After a successful commit, the status bar offers a **Test changes** link that builds and launches your Unity project via the command line. Configure the Unity Editor path via `config.ini` (`[build] build_cmd`), the `UNITY_PATH` environment variable, or let the app auto-detect a Unity Hub installation.
 - A **Build & Run** button in the top-right corner lets you compile and launch the Unity project at any time to quickly test the latest changes.
+- Build failures surface a dialog showing Unity's log tail so issues can be diagnosed without hunting for files.
 - Draggable divider lets the prompt area take space from the response area when needed.
 - Successful commits highlight the status bar message in green.
 - After a successful commit, starting a new request clears prior output so separate conversations don't mix.

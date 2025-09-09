@@ -214,9 +214,10 @@ def test_build_and_launch_game_runs(monkeypatch, tmp_path):
     """Building then launching should invoke subprocess.run and subprocess.Popen."""
     calls = []  # record the order and arguments of subprocess calls
 
-    def fake_run(cmd, check):
-        # capture the build command
-        calls.append(("run", cmd, check))
+    def fake_run(cmd, capture_output, text):
+        # capture the build command and pretend it succeeded
+        calls.append(("run", cmd))
+        return types.SimpleNamespace(returncode=0, stderr="")
 
     def fake_popen(cmd):
         # capture the launch command and return a dummy process object
@@ -235,21 +236,22 @@ def test_build_and_launch_game_runs(monkeypatch, tmp_path):
 
     proc = config_utils.build_and_launch_game(["build"], [str(game)])
 
-    assert calls == [("run", ["build"], True), ("popen", [str(game)])]
+    assert calls == [("run", ["build"]), ("popen", [str(game)])]
     assert isinstance(proc, types.SimpleNamespace)
 
 
 def test_build_and_launch_game_propagates_build_error(monkeypatch):
     """If the build step fails, the exception should bubble up."""
 
-    def fail_run(cmd, check):
-        raise subprocess.CalledProcessError(1, cmd)
+    def fail_run(cmd, capture_output, text):
+        # Simulate Unity returning a failure exit code
+        return types.SimpleNamespace(returncode=1, stderr="boom")
 
     # Pretend the build tool exists so we reach the failing run()
     monkeypatch.setattr(config_utils.shutil, "which", lambda _cmd: "/usr/bin/build")
     monkeypatch.setattr(config_utils.subprocess, "run", fail_run)
 
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(RuntimeError):
         config_utils.build_and_launch_game(["build"], ["run"])
 
 
@@ -264,7 +266,11 @@ def test_build_and_launch_game_missing_game_binary(monkeypatch, tmp_path):
 
     # Pretend the build tool exists and the build command succeeds
     monkeypatch.setattr(config_utils.shutil, "which", lambda _cmd: "/usr/bin/build")
-    monkeypatch.setattr(config_utils.subprocess, "run", lambda cmd, check: None)
+    monkeypatch.setattr(
+        config_utils.subprocess,
+        "run",
+        lambda cmd, capture_output, text: types.SimpleNamespace(returncode=0, stderr=""),
+    )
 
     # Path to a game binary that was not created by the build step
     missing_game = tmp_path / "no_game.exe"
@@ -331,8 +337,9 @@ def test_build_and_launch_game_uses_finder(monkeypatch, tmp_path):
     )
 
     # Patch subprocess.run and Popen so nothing real executes
-    def fake_run(cmd, check):
-        calls.append(("run", cmd, check))
+    def fake_run(cmd, capture_output, text):
+        calls.append(("run", cmd))
+        return types.SimpleNamespace(returncode=0, stderr="")
 
     def fake_popen(cmd):
         calls.append(("popen", cmd))
@@ -346,3 +353,33 @@ def test_build_and_launch_game_uses_finder(monkeypatch, tmp_path):
 
     assert calls[0][1][0] == str(unity)
     assert isinstance(proc, types.SimpleNamespace)
+
+
+def test_build_and_launch_game_includes_log_tail(monkeypatch, tmp_path):
+    """Failures should include Unity's log tail for easier debugging."""
+
+    # Create fake Unity executable and game binary paths
+    unity = tmp_path / "Unity.exe"
+    unity.touch()
+    game = tmp_path / "game.exe"
+
+    # Write a log file with a distinctive last line
+    log_file = tmp_path / "Editor.log.batchbuild.txt"
+    log_file.write_text("line1\nline2\nlast line\n")
+
+    def fail_run(cmd, capture_output, text):
+        # Return failure while leaving stderr populated
+        return types.SimpleNamespace(returncode=1, stderr="boom")
+
+    # Patch helpers so the function uses our fake paths and log file
+    monkeypatch.setattr(config_utils, "_find_unity_exe", lambda cfg=config_utils.CONFIG_PATH: str(unity))
+    monkeypatch.setattr(config_utils.shutil, "which", lambda p: p)
+    monkeypatch.setattr(config_utils.subprocess, "run", fail_run)
+
+    with pytest.raises(RuntimeError) as exc:
+        config_utils.build_and_launch_game(run_cmd=[str(game)], project_path=str(tmp_path))
+
+    # Both stderr and the last log line should be present in the error message
+    msg = str(exc.value)
+    assert "boom" in msg
+    assert "last line" in msg
