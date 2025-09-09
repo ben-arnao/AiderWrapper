@@ -146,6 +146,7 @@ def run_aider(
         commit_id: Optional[str] = None
         failure_reason: Optional[str] = None
         waiting_on_user = False  # Set when aider asks for more information
+        last_line = ""  # Remember the most recent non-empty line from aider
 
         def update_countdown() -> None:
             """Refresh the status bar every second with remaining time."""
@@ -175,6 +176,11 @@ def run_aider(
             output_widget.see(tk.END)
             output_widget.configure(state="disabled")
 
+            # Keep track of the latest meaningful line for error reporting
+            stripped = line.strip()
+            if stripped:
+                last_line = stripped
+
             # Try to extract a commit hash from the stream.
             cid = extract_commit_id(line)
             if cid:
@@ -194,13 +200,8 @@ def run_aider(
                 and not waiting_on_user
                 and time.time() - start_time > timeout_minutes * 60
             ):
+                # Note the timeout but let final handling display and record it
                 failure_reason = "Timed out waiting for commit id"
-                update_status(
-                    status_var,
-                    status_label,
-                    "Failed to make commit due to timeout",
-                    "red",
-                )
                 proc.kill()
                 break
 
@@ -239,7 +240,9 @@ def run_aider(
             pass
         else:
             if failure_reason is None:
-                failure_reason = "No commit id found"
+                # Include exit code and last line so the user knows what happened
+                code = proc.returncode
+                failure_reason = f"aider exited with code {code}: {last_line}"
             output_widget.configure(state="normal")
             output_widget.insert(tk.END, f"\n[error] {failure_reason}\n")
             output_widget.insert(tk.END, f"[exit code: {proc.returncode}]\n")
@@ -251,6 +254,7 @@ def run_aider(
                 f"Failed to make commit due to {failure_reason}",
                 "red",
             )
+            # Store the detailed reason so it appears in the history table
             record_request(request_id, None, failure_reason=failure_reason)
             request_active = False
     except FileNotFoundError:
