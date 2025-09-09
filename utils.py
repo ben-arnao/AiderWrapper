@@ -83,7 +83,7 @@ def save_timeout(value: int, config_path: Path = CONFIG_PATH) -> None:
         config.write(fh)
 
 
-def load_project_dir(cache_path: Path = PROJECT_CACHE_PATH) -> str | None:
+def load_project_dir(cache_path: Path = PROJECT_CACHE_PATH) -> Optional[str]:
     """Return the cached Unity project path or None if it is missing or empty."""
     if cache_path.exists():
         text = cache_path.read_text().strip()
