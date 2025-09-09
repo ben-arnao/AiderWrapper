@@ -3,14 +3,14 @@ import time
 from typing import Optional, List
 
 import tkinter as tk
-from tkinter import scrolledtext, ttk
+from tkinter import ttk
 
 from utils import (
     should_suppress,
     extract_commit_id,
     needs_user_input,
+    update_status,
     get_commit_stats,
-    build_and_launch_game,
 )
 
 # Track details for each user request so they can be shown in a history table.
@@ -68,7 +68,7 @@ def record_request(
 
 def run_aider(
     msg: str,
-    output_widget: scrolledtext.ScrolledText,
+    output_widget: tk.Text,
     txt_input: tk.Text,
     work_dir: str,
     model: str,
@@ -86,8 +86,9 @@ def run_aider(
     """
 
     global request_active
-    # Remove any previous "test changes" link before starting a new request
-    status_label.config(foreground="black", cursor="")
+    # Ensure the status bar is reset for each new request by removing any
+    # previous click handlers and cursor styling.
+    status_label.config(cursor="")
     status_label.unbind("<Button-1>")
 
     try:
@@ -96,8 +97,11 @@ def run_aider(
 
         # Let the user know we're waiting on aider and start a simple countdown
         # so they can see when a timeout will occur.
-        status_var.set(
-            f"Waiting on aider's response... {timeout_minutes * 60} seconds to timeout"
+        update_status(
+            status_var,
+            status_label,
+            f"Waiting on aider's response... {timeout_minutes * 60} seconds to timeout",
+            "black",
         )
 
         output_widget.configure(state="normal")
@@ -132,9 +136,12 @@ def run_aider(
             # Stop updating once we have a result or are waiting on the user.
             if commit_id or failure_reason or waiting_on_user or remaining < 0:
                 return
-            status_var.set(
-                f"Waiting on aider's response... {remaining} seconds to timeout"
-            )
+                update_status(
+                    status_var,
+                    status_label,
+                    f"Waiting on aider's response... {remaining} seconds to timeout",
+                    "black",
+                )
             root.after(1000, update_countdown)
 
         # Kick off the countdown updates using the Tk root from the caller.
@@ -158,7 +165,7 @@ def run_aider(
             # the user reply instead of timing out.
             if needs_user_input(line):
                 waiting_on_user = True
-                status_var.set("Aider is waiting on our input")
+                update_status(status_var, status_label, "Aider is waiting on our input", "orange")
                 proc.kill()
                 break
 
@@ -169,7 +176,12 @@ def run_aider(
                 and time.time() - start_time > timeout_minutes * 60
             ):
                 failure_reason = "Timed out waiting for commit id"
-                status_var.set("Failed to make commit due to timeout")
+                update_status(
+                    status_var,
+                    status_label,
+                    "Failed to make commit due to timeout",
+                    "red",
+                )
                 proc.kill()
                 break
 
@@ -180,14 +192,11 @@ def run_aider(
                 # Query git for stats about the commit so we can store them.
                 stats = get_commit_stats(commit_id, work_dir)
                 record_request(request_id, commit_id, stats)
-                status_var.set(
-                    f"Successfully made changes with commit id {commit_id}. Click to test changes"
-                )
-                # Make the status label look and behave like a hyperlink that
-                # builds and launches the user's game when clicked
-                status_label.config(foreground="blue", cursor="hand2")
-                status_label.bind(
-                    "<Button-1>", lambda _e: build_and_launch_game()
+                update_status(
+                    status_var,
+                    status_label,
+                    f"Successfully made changes with commit id {commit_id}",
+                    "green",
                 )
             except Exception as e:
                 # If stats collection fails, record the error but keep running.
@@ -196,8 +205,11 @@ def run_aider(
                     commit_id,
                     failure_reason=f"stats error: {e}",
                 )
-                status_var.set(
-                    f"Made commit {commit_id} but failed to gather stats"
+                update_status(
+                    status_var,
+                    status_label,
+                    f"Made commit {commit_id} but failed to gather stats",
+                    "red",
                 )
             request_active = False
         elif waiting_on_user:
@@ -212,7 +224,12 @@ def run_aider(
             output_widget.insert(tk.END, f"[exit code: {proc.returncode}]\n")
             output_widget.insert(tk.END, "-" * 60 + "\n")
             output_widget.configure(state="disabled")
-            status_var.set(f"Failed to make commit due to {failure_reason}")
+            update_status(
+                status_var,
+                status_label,
+                f"Failed to make commit due to {failure_reason}",
+                "red",
+            )
             record_request(request_id, None, failure_reason=failure_reason)
             request_active = False
     except FileNotFoundError:
@@ -222,7 +239,12 @@ def run_aider(
             "\n[error] Could not find 'aider'. Make sure it's installed and on your PATH.\n",
         )
         output_widget.configure(state="disabled")
-        status_var.set("Failed to make commit due to missing 'aider'")
+        update_status(
+            status_var,
+            status_label,
+            "Failed to make commit due to missing 'aider'",
+            "red",
+        )
         record_request(request_id, None, failure_reason="aider not found")
         request_active = False
     finally:

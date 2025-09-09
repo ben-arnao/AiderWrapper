@@ -208,6 +208,32 @@ def test_fetch_usage_data_error():
     with pytest.raises(ValueError):
         utils.fetch_usage_data("key", request_fn=bad_request)
 
+
+def test_update_status_sets_message_and_color():
+    """update_status should set both the text and the color."""
+
+    class DummyVar:
+        def __init__(self):
+            self.value = ""
+
+        def set(self, value):
+            # Store the last message assigned to the variable
+            self.value = value
+
+    class DummyLabel:
+        def __init__(self):
+            self.fg = ""
+
+        def config(self, **kwargs):
+            # Capture the requested foreground color
+            self.fg = kwargs.get("foreground", self.fg)
+
+    var = DummyVar()
+    lbl = DummyLabel()
+    utils.update_status(var, lbl, "hello", "green")
+    assert var.value == "hello"
+    assert lbl.fg == "green"
+
 def test_build_and_launch_game_runs(monkeypatch, tmp_path):
     """Building then launching should invoke subprocess.run and subprocess.Popen."""
     calls = []  # record the order and arguments of subprocess calls
