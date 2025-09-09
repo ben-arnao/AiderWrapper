@@ -7,3 +7,4 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 - Project directory chooser with basic Unity project verification.
 - Multiline text area for composing prompts.
 - Startup check that validates the `AIDER_OPENAI_API_KEY` via a test API call.
+- Utility module for summarizing numeric trends with confidence intervals and improvement probabilities.
