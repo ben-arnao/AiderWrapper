@@ -3,23 +3,20 @@ import time
 from typing import Optional, List
 
 import tkinter as tk
-from tkinter import scrolledtext, ttk
+from tkinter import ttk
 
 from utils import (
     should_suppress,
     extract_commit_id,
-    extract_cost,
     needs_user_input,
+    update_status,
     get_commit_stats,
-    build_and_launch_game,
 )
 
 # Track details for each user request so they can be shown in a history table.
 request_history: List[dict] = []  # List of per-request summaries
 current_request_id: Optional[str] = None  # UUID for the active request
 request_active = False  # True while we're waiting on aider to finish
-session_cost = 0.0  # Total dollars spent during this app session
-session_cost_var: Optional[tk.StringVar] = None  # Label for displaying session cost
 
 
 def record_request(
@@ -28,7 +25,6 @@ def record_request(
     stats: Optional[dict] = None,
     failure_reason: Optional[str] = None,
     description: str = "",
-    cost: Optional[float] = None,
 ) -> None:
     """Append a summary of the request to ``request_history``.
 
@@ -45,9 +41,8 @@ def record_request(
         Text explaining why the request failed, if applicable.
     description:
         Short commit message suitable for display in the history table.
-    cost:
-        Dollar amount reported by aider for this request, if any.
     """
+
     # Compute totals from stats when available; otherwise fall back to zero.
     lines_total = stats["lines_changed"] if stats else 0
     files_total = 0
@@ -66,23 +61,15 @@ def record_request(
             "commit_id": commit_id,
             "lines": lines_total,
             "files": files_total,
-            "cost": cost,
             "failure_reason": failure_reason,
             "description": description,
         }
     )
 
-    # Update the running session cost and reflect it in the UI label.
-    global session_cost
-    if cost is not None:
-        session_cost += cost
-        if session_cost_var is not None:
-            session_cost_var.set(f"${session_cost:.2f} spent this session")
-
 
 def run_aider(
     msg: str,
-    output_widget: scrolledtext.ScrolledText,
+    output_widget: tk.Text,
     txt_input: tk.Text,
     work_dir: str,
     model: str,
@@ -100,11 +87,10 @@ def run_aider(
     """
 
     global request_active
-    # Remove any previous "test changes" link before starting a new request
-    status_label.config(foreground="black", cursor="")
+    # Ensure the status bar is reset for each new request by removing any
+    # previous click handlers and cursor styling.
+    status_label.config(cursor="")
     status_label.unbind("<Button-1>")
-
-    request_cost: Optional[float] = None  # Dollars reported by aider
 
     try:
         # Automatically answer "yes" to any prompts so the UI never hangs.
@@ -112,8 +98,11 @@ def run_aider(
 
         # Let the user know we're waiting on aider and start a simple countdown
         # so they can see when a timeout will occur.
-        status_var.set(
-            f"Waiting on aider's response... {timeout_minutes * 60} seconds to timeout"
+        update_status(
+            status_var,
+            status_label,
+            f"Waiting on aider's response... {timeout_minutes * 60} seconds to timeout",
+            "black",
         )
 
         output_widget.configure(state="normal")
@@ -148,8 +137,11 @@ def run_aider(
             # Stop updating once we have a result or are waiting on the user.
             if commit_id or failure_reason or waiting_on_user or remaining < 0:
                 return
-            status_var.set(
-                f"Waiting on aider's response... {remaining} seconds to timeout"
+            update_status(
+                status_var,
+                status_label,
+                f"Waiting on aider's response... {remaining} seconds to timeout",
+                "black",
             )
             root.after(1000, update_countdown)
 
@@ -170,16 +162,11 @@ def run_aider(
             if cid:
                 commit_id = cid
 
-            # Capture any cost reported by aider for this request.
-            cost = extract_cost(line)
-            if cost is not None:
-                request_cost = cost
-
             # If aider is asking for more information, stop the process and let
             # the user reply instead of timing out.
             if needs_user_input(line):
                 waiting_on_user = True
-                status_var.set("Aider is waiting on our input")
+                update_status(status_var, status_label, "Aider is waiting on our input", "orange")
                 proc.kill()
                 break
 
@@ -190,7 +177,12 @@ def run_aider(
                 and time.time() - start_time > timeout_minutes * 60
             ):
                 failure_reason = "Timed out waiting for commit id"
-                status_var.set("Failed to make commit due to timeout")
+                update_status(
+                    status_var,
+                    status_label,
+                    "Failed to make commit due to timeout",
+                    "red",
+                )
                 proc.kill()
                 break
 
@@ -200,15 +192,12 @@ def run_aider(
             try:
                 # Query git for stats about the commit so we can store them.
                 stats = get_commit_stats(commit_id, work_dir)
-                record_request(request_id, commit_id, stats, cost=request_cost)
-                status_var.set(
-                    f"Successfully made changes with commit id {commit_id}. Click to test changes"
-                )
-                # Make the status label look and behave like a hyperlink that
-                # builds and launches the user's game when clicked
-                status_label.config(foreground="blue", cursor="hand2")
-                status_label.bind(
-                    "<Button-1>", lambda _e: build_and_launch_game()
+                record_request(request_id, commit_id, stats)
+                update_status(
+                    status_var,
+                    status_label,
+                    f"Successfully made changes with commit id {commit_id}",
+                    "green",
                 )
             except Exception as e:
                 # If stats collection fails, record the error but keep running.
@@ -216,10 +205,12 @@ def run_aider(
                     request_id,
                     commit_id,
                     failure_reason=f"stats error: {e}",
-                    cost=request_cost,
                 )
-                status_var.set(
-                    f"Made commit {commit_id} but failed to gather stats"
+                update_status(
+                    status_var,
+                    status_label,
+                    f"Made commit {commit_id} but failed to gather stats",
+                    "red",
                 )
             request_active = False
         elif waiting_on_user:
@@ -234,8 +225,13 @@ def run_aider(
             output_widget.insert(tk.END, f"[exit code: {proc.returncode}]\n")
             output_widget.insert(tk.END, "-" * 60 + "\n")
             output_widget.configure(state="disabled")
-            status_var.set(f"Failed to make commit due to {failure_reason}")
-            record_request(request_id, None, failure_reason=failure_reason, cost=request_cost)
+            update_status(
+                status_var,
+                status_label,
+                f"Failed to make commit due to {failure_reason}",
+                "red",
+            )
+            record_request(request_id, None, failure_reason=failure_reason)
             request_active = False
     except FileNotFoundError:
         output_widget.configure(state="normal")
@@ -244,10 +240,16 @@ def run_aider(
             "\n[error] Could not find 'aider'. Make sure it's installed and on your PATH.\n",
         )
         output_widget.configure(state="disabled")
-        status_var.set("Failed to make commit due to missing 'aider'")
-        record_request(request_id, None, failure_reason="aider not found", cost=request_cost)
+        update_status(
+            status_var,
+            status_label,
+            "Failed to make commit due to missing 'aider'",
+            "red",
+        )
+        record_request(request_id, None, failure_reason="aider not found")
         request_active = False
     finally:
         # Re-enable the input box so the user can type a follow-up or new request.
         txt_input.config(state="normal")
         txt_input.focus_set()
+

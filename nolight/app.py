@@ -1,7 +1,7 @@
 import threading
 import subprocess
 import tkinter as tk
-from tkinter import ttk, scrolledtext, filedialog
+from tkinter import ttk, filedialog, messagebox
 import os
 import uuid
 
@@ -12,6 +12,8 @@ from utils import (
     save_timeout,
     load_working_dir,
     save_working_dir,
+    load_usage_days,
+    fetch_usage_data,
     format_history_row,
     HISTORY_COL_WIDTHS,
 )
@@ -44,6 +46,7 @@ def main() -> None:
     timeout_var = tk.IntVar(value=load_timeout())
 
     def on_timeout_change(*_args):
+        # Persist any changes to the timeout so it survives restarts
         save_timeout(timeout_var.get())
 
     timeout_var.trace_add("write", on_timeout_change)
@@ -123,10 +126,22 @@ def main() -> None:
     lbl = ttk.Label(main_frame, text="What can I do for you today?")
     lbl.grid(row=3, column=0, sticky="w", pady=(4, 0))
 
-    # Multiline input (Shift+Enter for newline; Enter to send)
-    txt_input = scrolledtext.ScrolledText(main_frame, width=100, height=6, wrap="word")
-    txt_input.grid(row=4, column=0, columnspan=4, sticky="nsew", pady=(4, 0))
-    main_frame.rowconfigure(4, weight=0)
+    # Paned window lets the user resize input and output areas
+    paned = ttk.PanedWindow(main_frame, orient="vertical")
+    paned.grid(row=4, column=0, columnspan=4, sticky="nsew", pady=(4, 0))
+    main_frame.rowconfigure(4, weight=1)
+
+    # --- Input area -----------------------------------------------------------
+    input_frame = ttk.Frame(paned)
+    # Text widget where the user enters prompts; scrollbar keeps it tidy
+    txt_input = tk.Text(input_frame, wrap="word")
+    input_scroll = ttk.Scrollbar(input_frame, orient="vertical", command=txt_input.yview)
+    txt_input.configure(yscrollcommand=input_scroll.set)
+    txt_input.grid(row=0, column=0, sticky="nsew")
+    input_scroll.grid(row=0, column=1, sticky="ns")
+    input_frame.rowconfigure(0, weight=1)
+    input_frame.columnconfigure(0, weight=1)
+    paned.add(input_frame, weight=1)
 
     def on_send(event=None) -> None:
         """Handle the Enter key by sending the message to aider."""
@@ -178,34 +193,40 @@ def main() -> None:
     txt_input.bind("<Shift-Return>", on_shift_return)
     txt_input.focus_set()
 
+    # --- Response area --------------------------------------------------------
+    response_frame = ttk.Frame(paned)
+
     # Status bar communicates whether we're waiting on aider or user input
     status_var = tk.StringVar(value="Aider is waiting on our input")
-    # Frame with a border so the status bar looks visually distinct and "boxed".
-    status_frame = ttk.Frame(main_frame, borderwidth=1, relief="solid")
-    status_frame.grid(row=5, column=0, columnspan=4, sticky="ew", pady=0)
+    # Border around status bar helps it stand out from the output text
+    status_frame = ttk.Frame(response_frame, borderwidth=1, relief="solid")
+    status_frame.grid(row=0, column=0, sticky="ew")
     status_label = ttk.Label(status_frame, textvariable=status_var)
     # Expand label to fill the frame horizontally.
     status_label.pack(fill="x", padx=2, pady=2)
 
-    # Output area where aider output is streamed
-    output = scrolledtext.ScrolledText(
-        main_frame, width=100, height=24, wrap="word", state="disabled"
-    )
-    # Attach the output area directly below the status frame with no spacing.
-    output.grid(row=6, column=0, columnspan=4, sticky="nsew", pady=(0, 0))
-    main_frame.rowconfigure(6, weight=1)
+    # Output area where aider output is streamed back to the user
+    output = tk.Text(response_frame, wrap="word", state="disabled")
+    output_scroll = ttk.Scrollbar(response_frame, orient="vertical", command=output.yview)
+    output.configure(yscrollcommand=output_scroll.set)
+    output.grid(row=1, column=0, sticky="nsew")
+    output_scroll.grid(row=1, column=1, sticky="ns")
+    response_frame.rowconfigure(1, weight=1)
+    response_frame.columnconfigure(0, weight=1)
+
+    # Give the response area more room than the input by default
+    paned.add(response_frame, weight=3)
 
     def show_history() -> None:
         """Open a window displaying a table of previous requests."""
         win = tk.Toplevel(root)
         win.title("History")
-        # We only show total line, file counts, and per-request cost for brevity.
+        # We only show total line and file counts for brevity.
         cols = (
             "request_id",
             "commit_id",
             "lines",
             "files",
-            "cost",
             "failure_reason",
             "description",
         )
@@ -213,22 +234,53 @@ def main() -> None:
         for col in cols:
             tree.heading(col, text=col.replace("_", " ").title())
             # Keep IDs and counts narrow but give text fields extra room.
-            anchor = "e" if col in {"lines", "files", "cost"} else "w"
+            anchor = "e" if col in {"lines", "files"} else "w"
             tree.column(col, width=HISTORY_COL_WIDTHS[col], anchor=anchor)
         for rec in runner.request_history:
             # Abbreviate IDs before inserting so the table stays compact.
             tree.insert("", tk.END, values=format_history_row(rec))
         tree.pack(fill="both", expand=True)
 
+    def show_api_usage() -> None:
+        """Display recent OpenAI API spending and remaining credits."""
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            messagebox.showerror("API Usage", "OPENAI_API_KEY not set")
+            return
+
+        # Read how far back to look for usage statistics from the config file.
+        days = load_usage_days()
+        try:
+            stats = fetch_usage_data(api_key, days=days)
+        except Exception as exc:
+            # Surface any API errors so the user can investigate.
+            messagebox.showerror("API Usage", str(exc))
+            return
+
+        # Average cost is approximated using the number of requests we have tracked.
+        avg_cost = (
+            stats["total_spent"] / len(runner.request_history)
+            if runner.request_history
+            else 0
+        )
+
+        win = tk.Toplevel(root)
+        win.title("API Usage")
+        msg = (
+            f"Amount spent (last {days} days): ${stats['total_spent']:.2f}\n"
+            f"Average cost per request: ${avg_cost:.2f}\n"
+            f"Credits remaining: ${stats['credits_remaining']:.2f} of ${stats['credits_total']:.2f}\n"
+            f"Percent credits used: {stats['pct_credits_used']:.2f}%"
+        )
+        ttk.Label(win, text=msg, justify="left").pack(padx=10, pady=10)
+
     # Simple button to pop up the history table
     history_btn = ttk.Button(main_frame, text="History", command=show_history)
-    history_btn.grid(row=7, column=0, sticky="w", pady=(6, 0))
+    history_btn.grid(row=5, column=0, sticky="w", pady=(6, 0))
 
-    # Display running total of money spent in the current session
-    session_cost_var = tk.StringVar(value="$0.00 spent this session")
-    runner.session_cost_var = session_cost_var
-    session_cost_label = ttk.Label(main_frame, textvariable=session_cost_var)
-    session_cost_label.grid(row=7, column=3, sticky="e", pady=(6, 0))
+    # Button to display API usage information
+    usage_btn = ttk.Button(main_frame, text="API usage", command=show_api_usage)
+    usage_btn.grid(row=5, column=3, sticky="e", pady=(6, 0))
 
     def open_env_settings(event=None) -> None:
         """Open the system environment variable settings on Windows."""
@@ -268,3 +320,4 @@ def main() -> None:
 
     root.after(0, check_api_key)
     root.mainloop()
+

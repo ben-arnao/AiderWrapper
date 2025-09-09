@@ -3,6 +3,7 @@ import re
 import configparser  # Read/write simple configuration values
 from pathlib import Path  # Locate config file relative to this module
 from typing import Callable, Optional
+from datetime import date, timedelta  # Compute date ranges for API calls
 
 import subprocess  # Run external commands like git or Unity
 import shutil  # Locate executables on the PATH
@@ -144,6 +145,81 @@ def save_working_dir(path: str, cache_path: Path = WORKING_DIR_CACHE_PATH) -> No
         fh.write(path)
 
 
+def load_usage_days(config_path: Path = CONFIG_PATH) -> int:
+    """Return how many days of API usage history to request.
+
+    The value lives under the [api] section in config.ini and defaults to 30
+    days if not set. Storing it here lets users tweak how far back to look for
+    spending without modifying code.
+    """
+
+    config = configparser.ConfigParser()
+    if config_path.exists():
+        config.read(config_path)
+    return config.getint("api", "usage_days", fallback=30)
+
+
+def fetch_usage_data(
+    api_key: str, days: int = 30, request_fn: Callable = requests.get
+) -> dict:
+    """Return spending and credit data from the OpenAI billing API.
+
+    Parameters
+    ----------
+    api_key:
+        Authentication token for the OpenAI API.
+    days:
+        How many days in the past to request usage data for.
+    request_fn:
+        Function used to make HTTP GET requests. Defaults to ``requests.get``
+        but is injectable for testing.
+
+    Returns
+    -------
+    dict
+        Mapping containing ``total_spent`` (USD), ``credits_total``,
+        ``credits_remaining``, and ``pct_credits_used``.
+
+    Raises
+    ------
+    ValueError
+        If any API call responds with a non-200 status code.
+    """
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+
+    end = date.today()
+    start = end - timedelta(days=days)
+    usage_resp = request_fn(
+        "https://api.openai.com/v1/dashboard/billing/usage",
+        headers=headers,
+        params={"start_date": start.isoformat(), "end_date": end.isoformat()},
+    )
+    if usage_resp.status_code != 200:
+        raise ValueError(getattr(usage_resp, "text", "usage request failed"))
+    total_spent = usage_resp.json().get("total_usage", 0) / 100.0  # convert cents to dollars
+
+    credits_resp = request_fn(
+        "https://api.openai.com/v1/dashboard/billing/credit_grants",
+        headers=headers,
+    )
+    if credits_resp.status_code != 200:
+        raise ValueError(getattr(credits_resp, "text", "credits request failed"))
+    credits = credits_resp.json()
+    total_granted = credits.get("total_granted", 0)
+    total_used = credits.get("total_used", 0)
+    total_available = credits.get("total_available", 0)
+
+    pct_used = (total_used / total_granted * 100) if total_granted else 0
+
+    return {
+        "total_spent": total_spent,
+        "credits_total": total_granted,
+        "credits_remaining": total_available,
+        "pct_credits_used": pct_used,
+    }
+
+
 def extract_commit_id(text: str) -> Optional[str]:
     """Return the first commit hash found in the text or None."""
     match = COMMIT_RE.search(text)
@@ -167,6 +243,27 @@ def needs_user_input(line: str) -> bool:
 
     stripped = line.strip()
     return any(rx.match(stripped) for rx in USER_INPUT_REGEXES)
+
+
+def update_status(status_var, status_label, message: str, color: str = "black") -> None:
+    """Set a Tk status label's text and color in one call.
+
+    Parameters
+    ----------
+    status_var:
+        ``StringVar`` controlling the label's text.
+    status_label:
+        The label widget to recolor.
+    message:
+        Text shown to the user describing the current state.
+    color:
+        Foreground color name for the label (defaults to neutral black).
+    """
+
+    # Display the message so the user knows what is happening
+    status_var.set(message)
+    # Color-code the message to communicate success or failure at a glance
+    status_label.config(foreground=color)
 
 
 def get_commit_stats(commit_id: str, repo_path: str) -> dict:
@@ -260,7 +357,6 @@ HISTORY_COL_WIDTHS = {
     "commit_id": 80,
     "lines": 60,
     "files": 60,
-    "cost": 80,
     "failure_reason": 200,
     "description": 300,
 }
@@ -286,7 +382,6 @@ def format_history_row(rec: dict) -> tuple:
         abbreviate(rec.get("commit_id")),
         rec.get("lines", 0),
         rec.get("files", 0),
-        (f"${rec['cost']:.2f}" if rec.get("cost") is not None else ""),
         rec.get("failure_reason", ""),
         rec.get("description", ""),
     )
