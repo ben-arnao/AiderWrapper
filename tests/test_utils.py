@@ -91,6 +91,14 @@ def test_needs_user_input_detects_prompt():
     assert text_utils.needs_user_input(line)
 
 
+def test_needs_user_input_detects_file_request():
+    """Phrases telling the user to add files should also trigger a prompt."""
+    line = (
+        "These are the files we might edit. I will stop here so you can add them to the chat (or confirm you want me to create them):"
+    )
+    assert text_utils.needs_user_input(line)
+
+
 def test_needs_user_input_ignores_regular_output():
     """Normal output lines should not be flagged as requiring input."""
     line = "Aider v0.86.1"

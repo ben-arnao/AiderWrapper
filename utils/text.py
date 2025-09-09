@@ -18,9 +18,17 @@ NO_TTY_PATTERNS = [
 NO_TTY_REGEXES = [re.compile(pat) for pat in NO_TTY_PATTERNS]
 
 # Regexes used to detect when aider is asking for additional input from the user.
-# We look for lines that begin with "Please" and end with a question mark as a
-# simple heuristic for interactive prompts.
-USER_INPUT_PATTERNS = [r"^Please .+\?$"]
+# Besides direct questions beginning with "Please ...?", aider often prints
+# conversational hints such as "I will stop here so you can add them to the chat"
+# or "Reply with answers".  We keep the patterns broad so new phrasing still
+# triggers a prompt for the user.
+USER_INPUT_PATTERNS = [
+    r"^Please .+\?$",              # Explicit question
+    r"add (?:them|the files) to the chat",  # Requests to attach files
+    r"stop here so you can",        # Aider pauses for more info
+    r"reply with answers",          # Explicit instruction to respond
+]
+# Compile regexes with IGNORECASE so minor variations are still matched.
 USER_INPUT_REGEXES = [re.compile(pat, re.IGNORECASE) for pat in USER_INPUT_PATTERNS]
 
 # Regex used to extract dollar amounts from aider output
@@ -53,6 +61,9 @@ def extract_cost(text: str) -> Optional[float]:
 
 def needs_user_input(line: str) -> bool:
     """Return True if the line indicates aider expects more information."""
-    # Trim whitespace and see if the remaining text matches our heuristic
+    # Trim whitespace so prefix/suffix spaces don't defeat detection
     stripped = line.strip()
-    return any(rx.match(stripped) for rx in USER_INPUT_REGEXES)
+    # Use ``search`` instead of ``match`` so patterns can appear anywhere in
+    # the line.  This lets us catch phrases like "I will stop here so you can"
+    # that do not begin the line.
+    return any(rx.search(stripped) for rx in USER_INPUT_REGEXES)
