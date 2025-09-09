@@ -13,6 +13,7 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 - The Send button has been removed—press **Enter** to dispatch a prompt.
 - A boxed status bar sits between the prompt area and the output, reporting whether we're waiting on aider or the user.
 - Output from previous requests remains visible so the full conversation can be reviewed.
+- An **API usage** button displays recent spending and remaining credits using the OpenAI billing API.
 
 ## Author
 Ben Arnao

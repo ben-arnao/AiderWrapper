@@ -1,7 +1,7 @@
 import threading
 import subprocess
 import tkinter as tk
-from tkinter import ttk, scrolledtext, filedialog
+from tkinter import ttk, scrolledtext, filedialog, messagebox
 import os
 import time  # Track elapsed time when waiting for commit id
 import uuid  # Generate a unique id for each request
@@ -18,6 +18,8 @@ from utils import (
     load_working_dir,
     save_working_dir,
     get_commit_stats,  # Compute line/file counts for commits
+    load_usage_days,  # Read how far back to query billing data
+    fetch_usage_data,  # Retrieve spending/credit information
 )
 
 # Map human-friendly names to actual model identifiers
@@ -435,9 +437,45 @@ def show_history():
     tree.pack(fill="both", expand=True)
 
 
+def show_api_usage():
+    """Open a window displaying recent API spending and credit details."""
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        # Fail fast if the key is missing so the user knows why we cannot query.
+        messagebox.showerror("API Usage", "Env var OPENAI_API_KEY is not set")
+        return
+
+    # Read how far back to look for usage statistics from the config file.
+    days = load_usage_days()
+    try:
+        stats = fetch_usage_data(api_key, days=days)
+    except Exception as exc:
+        # Surface any API errors so the user can investigate.
+        messagebox.showerror("API Usage", str(exc))
+        return
+
+    # Average cost is approximated using the number of requests we have tracked.
+    avg_cost = stats["total_spent"] / len(request_history) if request_history else 0
+
+    win = tk.Toplevel(root)
+    win.title("API Usage")
+    msg = (
+        f"Amount spent (last {days} days): ${stats['total_spent']:.2f}\n"
+        f"Average cost per request: ${avg_cost:.2f}\n"
+        f"Credits remaining: ${stats['credits_remaining']:.2f} of ${stats['credits_total']:.2f}\n"
+        f"Percent credits used: {stats['pct_credits_used']:.2f}%"
+    )
+    ttk.Label(win, text=msg, justify="left").pack(padx=10, pady=10)
+
+
 # Simple button to pop up the history table
 history_btn = ttk.Button(main, text="History", command=show_history)
 history_btn.grid(row=7, column=0, sticky="w", pady=(6, 0))
+
+# Button to display API usage information
+usage_btn = ttk.Button(main, text="API usage", command=show_api_usage)
+usage_btn.grid(row=7, column=3, sticky="e", pady=(6, 0))
 
 
 def open_env_settings(event=None):
