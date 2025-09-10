@@ -3,6 +3,10 @@
 import sys
 from pathlib import Path
 
+# Bring in Tkinter for widget construction and pytest for skipping when unavailable.
+import tkinter as tk
+import pytest
+
 # Ensure project root is on path so the UI module can be imported
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -140,4 +144,35 @@ def test_show_build_error_creates_scrollable_text(monkeypatch):
     assert sc.orient == "vertical"
     # Text should be read-only so users can't accidentally modify it.
     assert txt.kwargs["state"] == "disabled"
+
+
+def test_input_cleared_after_send(monkeypatch):
+    """Submitting a prompt should wipe the input box for the next message."""
+
+    try:
+        root = tk.Tk()
+        root.withdraw()  # Hide main window if display is available
+    except tk.TclError:
+        pytest.skip("Tkinter display not available")
+
+    widgets, _ = app.build_ui(root)
+    txt_input = widgets["txt_input"]
+    work_var = widgets["work_dir_var"]
+    work_var.set("/tmp")  # Pretend the user selected a working directory
+
+    def fake_run_aider(msg, output, txt, *_args, **_kwargs):
+        """Short-circuit the runner so the test doesn't spawn aider."""
+        app.runner.request_active = False
+        txt.config(state="normal")
+
+    # Replace the real runner with our instant-return fake
+    monkeypatch.setattr(app.runner, "run_aider", fake_run_aider)
+
+    txt_input.insert("1.0", "hello")
+    txt_input.event_generate("<Return>")  # Trigger the send handler
+    root.update()  # Process pending events so the handler runs
+
+    # After sending, the input area should be empty and ready for new text
+    assert txt_input.get("1.0", "end-1c") == ""
+    root.destroy()
 

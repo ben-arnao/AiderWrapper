@@ -23,6 +23,7 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 - Each aider request automatically attaches `AGENTS.md` and `README.md` so
   project rules and high-level context are always applied.
 - Each request records its cost in dollars and the total session spend is shown in the main window.
+ - After sending a prompt, the input box clears so the next message can be typed immediately.
 
 ## Development Best Practices
 
