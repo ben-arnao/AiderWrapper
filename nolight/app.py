@@ -178,6 +178,8 @@ def build_ui(root: tk.Tk):
         msg = sanitize(raw)
         # Remove old output if the last request finished with a commit.
         runner.maybe_clear_output(output)
+        # Remove the user's prompt so the box is ready for the next message.
+        txt_input.delete("1.0", tk.END)
         # Disable input until aider responds so duplicate requests can't be sent.
         txt_input.config(state="disabled")
         # Generate a new request id only if we're starting a fresh request.
@@ -204,7 +206,6 @@ def build_ui(root: tk.Tk):
             daemon=True,
         )
         t.start()
-        txt_input.delete("1.0", tk.END)
 
     def on_return(event):
         on_send()
@@ -329,6 +330,10 @@ def build_ui(root: tk.Tk):
         "model_label": model_label,
         "model_combo": model_combo,
         "prompt_label": lbl,
+        # Return the input widget so tests can simulate user typing.
+        "txt_input": txt_input,
+        # Expose the working directory variable for test configuration.
+        "work_dir_var": work_dir_var,
     }
 
     return widgets, check_api_key
