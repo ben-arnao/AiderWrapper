@@ -28,6 +28,8 @@ A small Tkinter-based interface for sending prompts to the [`aider`](https://git
 ## Development Best Practices
 
 - Add tests for functionality changes to verify new behavior.
+- The test suite runs in parallel with a 5-second timeout per test, so
+  no single test can stall the run and failures never stop subsequent tests.
 - Break up and modularize code where possible to reduce merge conflicts.
 - Utility helpers live in focused modules (e.g., `utils.text`, `utils.config`)
   so changes stay scoped to their domain.
