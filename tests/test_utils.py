@@ -378,6 +378,43 @@ def test_resolve_game_executable_missing(tmp_path):
         config_utils.resolve_game_executable(tmp_path)
 
 
+def test_upgrade_input_module_bootstrap_rewrites_legacy_api(tmp_path):
+    """Legacy LoadDefaultActions() calls should be swapped for the new helper."""
+
+    # Create the Unity script with the now-deprecated API usage.
+    script = tmp_path / "Assets" / "Scripts" / "UI" / "InputModuleBootstrap.cs"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        "using UnityEngine;\n"
+        "using UnityEngine.InputSystem;\n"
+        "using UnityEngine.InputSystem.UI;\n\n"
+        "public class InputModuleBootstrap : MonoBehaviour\n"
+        "{\n"
+        "    private void Awake()\n"
+        "    {\n"
+        "        var module = new GameObject().AddComponent<InputSystemUIInputModule>();\n"
+        "        var actions = InputSystemUIInputModule.LoadDefaultActions();\n"
+        "        module.actionsAsset = actions;\n"
+        "    }\n"
+        "}\n"
+    )
+
+    # Run the upgrader so it rewrites the file in-place.
+    changed = config_utils._upgrade_input_module_bootstrap(tmp_path)
+    assert changed is True
+
+    rewritten = script.read_text()
+    # The deprecated API invocation should be gone from the upgraded script.
+    assert "LoadDefaultActions(" not in rewritten
+    # The helper call should include the module variable captured above.
+    assert "AssignDefaultUIActions(module)" in rewritten
+    # The helper method is appended exactly once.
+    assert rewritten.count("AssignDefaultUIActions(") == 2
+
+    # Running the upgrade again should be a no-op because the helper already exists.
+    assert config_utils._upgrade_input_module_bootstrap(tmp_path) is False
+
+
 def test_build_and_launch_game_uses_finder(monkeypatch, tmp_path):
     """When no build_cmd is supplied, _find_unity_exe should provide the path."""
     calls = []  # record subprocess usage
@@ -420,6 +457,32 @@ def test_build_and_launch_game_uses_finder(monkeypatch, tmp_path):
     path_idx = cmd.index("-customBuildPath")
     assert cmd[path_idx + 1] == str(game)
     assert isinstance(proc, types.SimpleNamespace)
+
+
+def test_build_and_launch_game_invokes_upgrade_helper(monkeypatch, tmp_path):
+    """The build helper should attempt to upgrade legacy Unity scripts."""
+
+    # Track the project path passed into the upgrader.
+    calls = []
+
+    def fake_upgrade(path):
+        calls.append(path)
+        return False
+
+    monkeypatch.setattr(config_utils, "_upgrade_input_module_bootstrap", fake_upgrade)
+
+    # Stub out subprocess usage so no real external commands run.
+    monkeypatch.setattr(config_utils.subprocess, "run", lambda cmd, capture_output, text: types.SimpleNamespace(returncode=0, stderr=""))
+    monkeypatch.setattr(config_utils.subprocess, "Popen", lambda cmd: types.SimpleNamespace())
+    monkeypatch.setattr(config_utils.shutil, "which", lambda exe: exe)
+
+    game = tmp_path / "game.exe"
+    game.touch()
+
+    config_utils.build_and_launch_game(build_cmd=["build"], run_cmd=[str(game)], project_path=str(tmp_path))
+
+    # The upgrader should have been invoked exactly once with the resolved path.
+    assert calls == [tmp_path]
 
 
 def test_build_and_launch_game_includes_log_tail(monkeypatch, tmp_path):
