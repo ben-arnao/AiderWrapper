@@ -318,6 +318,27 @@ def test_find_unity_exe_from_config(tmp_path):
     assert config_utils._find_unity_exe(cfg) == str(unity)
 
 
+def test_find_unity_exe_uses_repo_root_config(monkeypatch, tmp_path):
+    """The default finder should read build_cmd from the repo root config.ini."""
+
+    root_cfg = config_utils.CONFIG_PATH
+    unity = tmp_path / "Unity.exe"
+    unity.touch()
+    original_text = root_cfg.read_text()
+    # Ensure the environment fallback does not take precedence over the config.
+    monkeypatch.delenv("UNITY_PATH", raising=False)
+    # Disable auto-discovery so the test only exercises the config handling.
+    monkeypatch.setattr(config_utils.glob, "glob", lambda pattern: [])
+
+    try:
+        # Write a temporary build command into the real config to mimic a user choice.
+        root_cfg.write_text(f"[build]\nbuild_cmd = {unity}\n")
+        assert config_utils._find_unity_exe() == str(unity)
+    finally:
+        # Restore the original config contents so other tests remain unaffected.
+        root_cfg.write_text(original_text)
+
+
 def test_find_unity_exe_from_env(monkeypatch, tmp_path):
     """UNITY_PATH env var should be used when config is missing."""
     unity = tmp_path / "Unity.exe"
