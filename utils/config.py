@@ -13,8 +13,10 @@ from typing import Optional
 import shutil  # Locate executables on the PATH
 import subprocess  # Run external commands like git or Unity
 
-# Path to the shared config file sitting next to this module
-CONFIG_PATH = Path(__file__).with_name("config.ini")
+# Path to the shared config file stored at the repository root. Using
+# resolve() lets us hop up to the project directory even if utils is
+# imported via a symlinked location.
+CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.ini"
 
 # File where we remember the last working directory selected by the user.
 # Keeping it separate from the main config avoids storing file paths in
