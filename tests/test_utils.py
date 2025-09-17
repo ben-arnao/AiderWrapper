@@ -237,7 +237,7 @@ def test_build_and_launch_game_runs(monkeypatch, tmp_path):
     def fake_popen(cmd):
         # capture the launch command and return a dummy process object
         calls.append(("popen", cmd))
-        return types.SimpleNamespace()
+        return types.SimpleNamespace(pid=4321)
 
     # Patch which() so the build tool appears to exist on the system
     monkeypatch.setattr(config_utils.shutil, "which", lambda _cmd: "/usr/bin/build")
@@ -249,13 +249,20 @@ def test_build_and_launch_game_runs(monkeypatch, tmp_path):
     game = tmp_path / "game.exe"
     game.touch()
 
-    proc = config_utils.build_and_launch_game(["build"], [str(game)])
+    log_path = tmp_path / "builder.log"
+    proc = config_utils.build_and_launch_game(
+        ["build"], [str(game)], builder_log_path=log_path
+    )
 
     assert calls == [("run", ["build"]), ("popen", [str(game)])]
     assert isinstance(proc, types.SimpleNamespace)
+    # Successful runs should record both the build and launch steps in the log.
+    log_text = log_path.read_text()
+    assert "Running build command" in log_text
+    assert "Launched game process PID 4321" in log_text
 
 
-def test_build_and_launch_game_propagates_build_error(monkeypatch):
+def test_build_and_launch_game_propagates_build_error(monkeypatch, tmp_path):
     """If the build step fails, the exception should bubble up."""
 
     def fail_run(cmd, capture_output, text):
@@ -266,14 +273,27 @@ def test_build_and_launch_game_propagates_build_error(monkeypatch):
     monkeypatch.setattr(config_utils.shutil, "which", lambda _cmd: "/usr/bin/build")
     monkeypatch.setattr(config_utils.subprocess, "run", fail_run)
 
+    log_path = tmp_path / "builder.log"
     with pytest.raises(RuntimeError):
-        config_utils.build_and_launch_game(["build"], ["run"])
+        config_utils.build_and_launch_game(
+            ["build"], ["run"], builder_log_path=log_path
+        )
+
+    # The build failure should still be reflected in our diagnostic log.
+    log_text = log_path.read_text()
+    assert "Unity build failed" in log_text
 
 
-def test_build_and_launch_game_missing_build_tool():
+def test_build_and_launch_game_missing_build_tool(tmp_path):
     """A missing build executable should raise FileNotFoundError."""
+    log_path = tmp_path / "builder.log"
     with pytest.raises(FileNotFoundError):
-        config_utils.build_and_launch_game(["missing_tool"], ["run"])
+        config_utils.build_and_launch_game(
+            ["missing_tool"], ["run"], builder_log_path=log_path
+        )
+    # When the tool is absent, the log explains why the build could not start.
+    log_text = log_path.read_text()
+    assert "Build tool 'missing_tool' not found" in log_text
 
 
 def test_build_and_launch_game_missing_game_binary(monkeypatch, tmp_path):
@@ -300,13 +320,21 @@ def test_build_and_launch_game_missing_game_binary(monkeypatch, tmp_path):
     # Path to the expected game executable that was never created
     missing_game = tmp_path / "no_game.exe"
 
+    log_path = tmp_path / "builder.log"
     with pytest.raises(FileNotFoundError) as exc:
-        config_utils.build_and_launch_game(run_cmd=[str(missing_game)], project_path=str(tmp_path))
+        config_utils.build_and_launch_game(
+            run_cmd=[str(missing_game)],
+            project_path=str(tmp_path),
+            builder_log_path=log_path,
+        )
 
     # The error message should include stderr output and the log tail
     msg = str(exc.value)
     assert "build failed" in msg
     assert "reason" in msg
+    # The log should also capture the missing binary to aid troubleshooting.
+    log_text = log_path.read_text()
+    assert "Preferred game executable missing" in log_text
 
 
 def test_find_unity_exe_from_config(tmp_path):
@@ -465,7 +493,10 @@ def test_build_and_launch_game_uses_finder(monkeypatch, tmp_path):
     monkeypatch.setattr(config_utils.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(config_utils.shutil, "which", lambda p: p)
 
-    proc = config_utils.build_and_launch_game(run_cmd=[str(game)])
+    log_path = tmp_path / "builder.log"
+    proc = config_utils.build_and_launch_game(
+        run_cmd=[str(game)], builder_log_path=log_path
+    )
 
     cmd = calls[0][1]
     assert cmd[0] == str(unity)
@@ -500,7 +531,12 @@ def test_build_and_launch_game_invokes_upgrade_helper(monkeypatch, tmp_path):
     game = tmp_path / "game.exe"
     game.touch()
 
-    config_utils.build_and_launch_game(build_cmd=["build"], run_cmd=[str(game)], project_path=str(tmp_path))
+    config_utils.build_and_launch_game(
+        build_cmd=["build"],
+        run_cmd=[str(game)],
+        project_path=str(tmp_path),
+        builder_log_path=tmp_path / "builder.log",
+    )
 
     # The upgrader should have been invoked exactly once with the resolved path.
     assert calls == [tmp_path]
@@ -528,7 +564,11 @@ def test_build_and_launch_game_includes_log_tail(monkeypatch, tmp_path):
     monkeypatch.setattr(config_utils.subprocess, "run", fail_run)
 
     with pytest.raises(RuntimeError) as exc:
-        config_utils.build_and_launch_game(run_cmd=[str(game)], project_path=str(tmp_path))
+        config_utils.build_and_launch_game(
+            run_cmd=[str(game)],
+            project_path=str(tmp_path),
+            builder_log_path=tmp_path / "builder.log",
+        )
 
     # Both stderr and the last log line should be present in the error message
     msg = str(exc.value)

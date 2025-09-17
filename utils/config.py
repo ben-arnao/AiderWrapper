@@ -9,9 +9,10 @@ import os
 import re  # Inspect Unity scripts for API patterns that need upgrades
 import configparser  # Read/write simple configuration values
 from pathlib import Path  # Locate config file relative to this module
-from typing import Optional
+from typing import Optional, Union
 import shutil  # Locate executables on the PATH
 import subprocess  # Run external commands like git or Unity
+from datetime import datetime  # Timestamp log entries for build attempts
 
 # Path to the shared config file stored at the repository root. Using
 # resolve() lets us hop up to the project directory even if utils is
@@ -81,6 +82,49 @@ def _read_log_tail(log_file: Path, lines: int = 80) -> str:
             return "".join(fh.readlines()[-lines:])
     except Exception:
         return ""
+
+
+def _default_builder_log_path() -> Path:
+    """Return the default log file used for build-and-launch attempts."""
+
+    # Mirror the Unity log location on Windows so all troubleshooting data lives
+    # in one folder. Other platforms fall back to a hidden directory in the
+    # user's home so tests run cleanly on CI.
+    if os.name == "nt":
+        return (
+            Path.home()
+            / "AppData"
+            / "LocalLow"
+            / "DefaultCompany"
+            / "NoLight"
+            / "Logs"
+            / "builder.log"
+        )
+    return Path.home() / ".nolight" / "logs" / "builder.log"
+
+
+def _resolve_builder_log_path(path: Optional[Union[str, Path]]) -> Path:
+    """Normalize ``path`` to a :class:`Path`, falling back to the default."""
+
+    return Path(path) if path is not None else _default_builder_log_path()
+
+
+def _log_builder_event(message: str, *, log_path: Path) -> None:
+    """Append ``message`` with a timestamp to ``log_path``.
+
+    Logging must never interrupt the build pipeline, so any exception when
+    creating directories or writing to disk is swallowed.
+    """
+
+    try:
+        # Ensure the destination exists before writing the message.
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_path, "a", encoding="utf-8") as fh:
+            fh.write(f"[{timestamp}] {message}\n")
+    except Exception:
+        # Logging failures are ignored so the main workflow continues.
+        return
 
 
 def load_default_model(config_path: Path = CONFIG_PATH) -> str:
@@ -261,6 +305,7 @@ def build_and_launch_game(
     project_path=None,
     unity_exe=None,
     method="RogueLike2D.Editor.BuildScript.PerformWindowsBuild",
+    builder_log_path=None,
 ):
     """Build the Unity project then start the resulting executable.
 
@@ -271,6 +316,10 @@ def build_and_launch_game(
         targets ``RogueLike2D.Editor.BuildScript.PerformWindowsBuild`` which wraps the
         project's Windows build logic. The command list avoids shell quoting so
         paths with spaces remain intact.
+    builder_log_path:
+        Optional path to a log file that records each build and launch step.
+        When omitted, the log mirrors the Unity player log directory on
+        Windows so troubleshooting information is centralized.
     """
 
     # Determine the Unity project path if none was provided.
@@ -278,8 +327,16 @@ def build_and_launch_game(
         project_root = Path(__file__).resolve().parents[2] / "NoLightUnityProject"
     else:
         project_root = Path(project_path)
+    log_path = _resolve_builder_log_path(builder_log_path)
+    _log_builder_event(
+        f"Preparing Unity build for project {project_root}", log_path=log_path
+    )
     # Upgrade Unity scripts before invoking the build so compilation succeeds.
-    _upgrade_input_module_bootstrap(project_root)
+    upgraded = _upgrade_input_module_bootstrap(project_root)
+    if upgraded:
+        _log_builder_event(
+            "Updated InputModuleBootstrap for Unity 6 compatibility", log_path=log_path
+        )
     project_path = str(project_root)
 
     if run_cmd is None:
@@ -290,7 +347,14 @@ def build_and_launch_game(
 
     if build_cmd is None:
         # Resolve ``Unity.exe`` and construct the batch build command.
-        unity_exe = unity_exe or _find_unity_exe()
+        try:
+            unity_exe = unity_exe or _find_unity_exe()
+        except Exception as exc:
+            _log_builder_event(
+                f"Failed to locate Unity executable: {exc}", log_path=log_path
+            )
+            raise
+        _log_builder_event(f"Using Unity executable at {unity_exe}", log_path=log_path)
         log_file = Path(project_path) / "Editor.log.batchbuild.txt"
         build_cmd = [
             unity_exe,
@@ -310,23 +374,37 @@ def build_and_launch_game(
         log_file = None  # No Unity log when using a custom build command
 
     exe_path = build_cmd[0]
+    _log_builder_event(
+        f"Running build command: {' '.join(map(str, build_cmd))}", log_path=log_path
+    )
     # Ensure the build tool exists either on PATH or as an absolute file.
     if not (shutil.which(exe_path) or Path(exe_path).is_file()):
+        _log_builder_event(
+            f"Build tool '{exe_path}' not found on PATH or disk", log_path=log_path
+        )
         raise FileNotFoundError(
             f"Build tool '{exe_path}' not found. Install Unity or provide the full path via build_cmd."
         )
 
     # Run the build without ``check=True`` so we can surface log output on failure.
-    proc = subprocess.run(build_cmd, capture_output=True, text=True)
-    stderr_text = proc.stderr.strip()
+    build_proc = subprocess.run(build_cmd, capture_output=True, text=True)
+    stderr_text = build_proc.stderr.strip()
+    _log_builder_event(
+        f"Build command completed with exit code {build_proc.returncode}",
+        log_path=log_path,
+    )
 
-    if proc.returncode != 0:
+    if build_proc.returncode != 0:
         # Non-zero exit means Unity reported a failure; include stderr and log tail
         # so the user can see what went wrong.
+        _log_builder_event(
+            f"Unity build failed with exit code {build_proc.returncode}",
+            log_path=log_path,
+        )
         tail = _read_log_tail(log_file) if log_file else ""
         log_display = str(log_file) if log_file else "(no log file)"
         msg = (
-            f"Unity batch build failed (exit {proc.returncode}).\n"
+            f"Unity batch build failed (exit {build_proc.returncode}).\n"
             f"Command: {' '.join(build_cmd)}\n\n"
             f"STDERR:\n{stderr_text or '(empty)'}\n\n"
             f"--- Log tail ({log_display}) ---\n{tail or '(log missing)'}"
@@ -337,9 +415,19 @@ def build_and_launch_game(
     # preferred name is missing so a successful build still launches.
     game_path = Path(run_cmd[0])
     if not game_path.exists():
+        _log_builder_event(
+            f"Preferred game executable missing at {game_path}; searching for fallback",
+            log_path=log_path,
+        )
         try:
             game_path = resolve_game_executable(project_path, game_path.name)
+            _log_builder_event(
+                f"Found alternate executable at {game_path}", log_path=log_path
+            )
         except FileNotFoundError:
+            _log_builder_event(
+                f"No executable found in {game_path.parent}", log_path=log_path
+            )
             tail = _read_log_tail(log_file) if log_file else ""
             log_display = str(log_file) if log_file else "(no log file)"
             msg = (
@@ -351,4 +439,12 @@ def build_and_launch_game(
 
     # Start the game without waiting for it to exit.
     run_cmd = [str(game_path)]
-    return subprocess.Popen(run_cmd)
+    _log_builder_event(
+        f"Launching game executable: {game_path}", log_path=log_path
+    )
+    launch_proc = subprocess.Popen(run_cmd)
+    _log_builder_event(
+        f"Launched game process PID {getattr(launch_proc, 'pid', 'unknown')}",
+        log_path=log_path,
+    )
+    return launch_proc
